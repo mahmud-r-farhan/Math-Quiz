@@ -1,9 +1,21 @@
-import express from 'express';
+require('dotenv').config();
+const express = require('express');
+const connectDB = require('./config/db');
+const authRoutes = require('./routes/auth');
+const quizRoutes = require('./routes/quiz');
+const userRoutes = require('./routes/user');
+const feedbackRoutes = require('./routes/feedback');
+const cors = require('cors');
 
 const app = express();
+connectDB();
 
-const Port = 4848;
+app.use(cors());
+app.use(express.json());
+app.use('/api/auth', authRoutes);
+app.use('/api/quiz', quizRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/feedback', feedbackRoutes);
 
-app.listen(Port, () => {
-  console.log(`Server is running on port ${Port}`);
-});
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
