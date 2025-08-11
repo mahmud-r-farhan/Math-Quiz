@@ -18,13 +18,14 @@ router.post('/questions', auth, async (req, res) => {
     const questions = Array.from({ length: 10 }, () => generateMathQuestion(difficulty, optionCount));
     res.json({ questions });
   } catch (error) {
+    console.error('Quiz questions error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 router.post('/submit', auth, async (req, res) => {
   try {
-    const { difficulty, score, timeTaken, streak, questions } = req.body;
+    const { difficulty, score, timeTaken, maxStreak, questions } = req.body;
     const gameResult = new GameResult({
       user: req.user.id,
       difficulty,
@@ -32,7 +33,7 @@ router.post('/submit', auth, async (req, res) => {
       pointsEarned: 0,
       accuracy: score.total > 0 ? Math.round((score.correct / score.total) * 100) : 0,
       timeTaken,
-      streak,
+      streak: maxStreak,
       questions,
     });
 
@@ -44,8 +45,14 @@ router.post('/submit', auth, async (req, res) => {
     user.gameHistory.push(gameResult._id);
     await user.save();
 
+    // Emit real-time events
+    req.io.to('all').emit('scoreUpdate', { userId: user._id, points: user.points, badges: user.badges });
+    const leaderboard = await User.find().sort({ points: -1 }).limit(10).select('username points profilePicture badges');
+    req.io.to('all').emit('leaderboardUpdate', { users: leaderboard });
+
     res.status(201).json({ gameResult });
   } catch (error) {
+    console.error('Quiz submission error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

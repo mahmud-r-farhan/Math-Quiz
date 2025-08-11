@@ -10,7 +10,6 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { generateMathQuestion } = require('./utils/questionGenerator');
 require('dotenv').config();
 
 const app = express();
@@ -21,14 +20,17 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
 });
 
 // Security Middleware
 app.use(helmet());
 app.use(
   rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 100,
   })
 );
 
@@ -39,6 +41,10 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/user', userRoutes);
@@ -52,6 +58,7 @@ io.use((socket, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.userId = decoded.id;
+    socket.join('all'); // Join global room for leaderboard updates
     next();
   } catch (error) {
     console.error('Socket auth error:', error.message);
@@ -80,6 +87,7 @@ io.on('connection', (socket) => {
       const questions = Array.from({ length: 10 }, () => generateMathQuestion(difficulty, optionCount));
       socket.emit('quizQuestions', { questions, userId });
     } catch (error) {
+      console.error('Quiz generation error:', error);
       socket.emit('error', { message: 'Failed to generate quiz questions' });
     }
   });

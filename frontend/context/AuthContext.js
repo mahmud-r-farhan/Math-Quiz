@@ -1,77 +1,144 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { auth, googleProvider } from '@/lib/firebase';
+import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const userData = localStorage.getItem('user');
-    if (token && userData) {
-      try {
-        setUser(JSON.parse(userData));
-      } catch (error) {
-        console.error('Invalid user data in localStorage:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // User signed in with Google
+        const idToken = await firebaseUser.getIdToken();
+        try {
+          // Send Firebase ID token to backend to verify and get custom JWT
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
+          });
+          const data = await response.json();
+          if (response.ok) {
+            localStorage.setItem('token', data.token);
+            setUser(data.user);
+          } else {
+            console.error('Google login failed:', data.message);
+            setUser(null);
+            localStorage.removeItem('token');
+          }
+        } catch (error) {
+          console.error('Error during Google login:', error);
+          setUser(null);
+          localStorage.removeItem('token');
+        }
+      } else {
+        // Check for existing JWT in localStorage (for email/password or guest users)
+        const token = localStorage.getItem('token');
+        if (token) {
+          try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await response.json();
+            if (response.ok) {
+              setUser(data.user);
+            } else {
+              localStorage.removeItem('token');
+              setUser(null);
+            }
+          } catch (error) {
+            console.error('Error fetching user profile:', error);
+            localStorage.removeItem('token');
+            setUser(null);
+          }
+        } else {
+          setUser(null);
+        }
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
+  const register = async (username, email, password, isGuest = false) => {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password, isGuest }),
+    });
+    const data = await response.json();
+    if (response.ok) {
+      localStorage.setItem('token', data.token);
+      setUser(data.user);
+    } else {
+      throw new Error(data.message || 'Registration failed');
+    }
+  };
+
   const login = async (email, password) => {
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Login failed');
-      
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await response.json();
+    if (response.ok) {
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);
-      return data;
-    } catch (error) {
-      throw new Error(error.message || 'An error occurred during login');
+    } else {
+      throw new Error(data.message || 'Login failed');
     }
   };
 
-  const register = async (username, email, password) => {
+  const googleLogin = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+      const result = await signInWithPopup(auth, googleProvider);
+      const idToken = await result.user.getIdToken();
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, password }),
+        body: JSON.stringify({ idToken }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Registration failed');
-      
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      setUser(data.user);
-      return data;
+      const data = await response.json();
+      if (response.ok) {
+        localStorage.setItem('token', data.token);
+        setUser(data.user);
+        router.push('/profile');
+      } else {
+        throw new Error(data.message || 'Google login failed');
+      }
     } catch (error) {
-      throw new Error(error.message || 'An error occurred during registration');
+      console.error('Google login error:', error);
+      throw error;
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setUser(null);
+  const logout = async () => {
+    try {
+      await auth.signOut();
+      localStorage.removeItem('token');
+      setUser(null);
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+    <AuthContext.Provider value={{ user, loading, register, login, googleLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  return useContext(AuthContext);
+}

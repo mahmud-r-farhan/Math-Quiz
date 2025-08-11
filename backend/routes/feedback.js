@@ -6,6 +6,9 @@ const router = express.Router();
 router.post('/', auth, async (req, res) => {
   try {
     const { content, rating } = req.body;
+    if (!content || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: 'Invalid feedback data' });
+    }
     const feedback = new Feedback({
       user: req.user.id,
       content,
