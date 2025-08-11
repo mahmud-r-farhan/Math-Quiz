@@ -14,6 +14,7 @@ const userSchema = new mongoose.Schema({
   points: { type: Number, default: 0 },
   gameHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'GameResult' }],
   createdAt: { type: Date, default: Date.now },
+  isGuest: { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('User', userSchema);

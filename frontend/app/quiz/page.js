@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Howl } from 'howler';
 import { MathJax, MathJaxContext } from 'better-react-mathjax';
+import io from 'socket.io-client';
 
 export default function Quiz() {
   const [difficulty, setDifficulty] = useState('');
@@ -21,13 +22,73 @@ export default function Quiz() {
   const [skipped, setSkipped] = useState(0);
   const [correct, setCorrect] = useState(0);
   const [wrong, setWrong] = useState(0);
-  const { user } = useAuth();
+  const [socket, setSocket] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const { user, register } = useAuth();
   const router = useRouter();
 
   // Initialize sounds
   const correctSound = new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057857/correct-6033_d2x1ks.mp3'] });
   const wrongSound = new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057858/wrong-answer-126515_ezcctf.mp3'] });
   const skipSound = new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057857/wrong-answer-129254_ppodzv.mp3'] });
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token && !user) {
+      // Create guest user
+      register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).catch((err) => {
+        setError('Failed to create guest account');
+      });
+    }
+
+    const newSocket = io(process.env.NEXT_PUBLIC_API_URL, {
+      auth: { token: localStorage.getItem('token') },
+      transports: ['websocket'],
+    });
+
+    newSocket.on('connect', () => {
+      console.log('Socket connected:', newSocket.id);
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err.message);
+      setIsLoading(false);
+      setError('Failed to connect to the server. Please try again.');
+    });
+
+    newSocket.on('quizQuestions', ({ questions }) => {
+      setQuestions(questions);
+      setTimer(60);
+      setAnswered(false);
+      setIsLoading(false);
+      setError(null);
+    });
+
+    newSocket.on('error', ({ message }) => {
+      setIsLoading(false);
+      setError(message);
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, [router, user, register]);
+
+  useEffect(() => {
+    let timeout;
+    if (isLoading) {
+      timeout = setTimeout(() => {
+        if (!questions) {
+          setIsLoading(false);
+          setError('Failed to load quiz questions. Please try again.');
+        }
+      }, 10000);
+    }
+    return () => clearTimeout(timeout);
+  }, [isLoading, questions]);
 
   const handleSkip = useCallback(() => {
     if (answered) return;
@@ -44,7 +105,6 @@ export default function Quiz() {
     let timerInterval;
     if (questions && !answered) {
       setTimeLeft(timer);
-      const startTime = Date.now();
       timerInterval = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 0) {
@@ -59,24 +119,14 @@ export default function Quiz() {
     return () => clearInterval(timerInterval);
   }, [questions, currentQuestion, answered, handleSkip, timer]);
 
-  const startQuiz = async () => {
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/questions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ difficulty, optionCount: 4 }),
-      });
-      if (!res.ok) throw new Error('Failed to fetch questions');
-      const data = await res.json();
-      setQuestions(data.questions);
-      setTimer(60); // Set timer based on difficulty if needed
-      setAnswered(false);
-    } catch (error) {
-      console.error('Error starting quiz:', error);
+  const startQuiz = () => {
+    if (!socket || !user) {
+      setError('Please log in or play as guest to start the quiz');
+      return;
     }
+    setIsLoading(true);
+    setError(null);
+    socket.emit('startQuiz', { difficulty, optionCount: 4, userId: user.id });
   };
 
   const handleAnswer = async (selectedAnswer) => {
@@ -114,7 +164,7 @@ export default function Quiz() {
     const allOptions = document.querySelectorAll('.option-btn');
     allOptions.forEach((opt) => {
       if (opt.textContent === questions[currentQuestion].correctAnswer) {
-        opt.classList.add('bg-green-600', 'success-pulse', 'text-white');
+        opt.classList.add('bg-green-500', 'animate-pulse', 'text-white');
       }
       opt.disabled = true;
     });
@@ -123,11 +173,10 @@ export default function Quiz() {
   const createSuccessEffect = () => {
     const effect = document.createElement('div');
     effect.textContent = '+1';
-    effect.className = 'fixed text-green-400 font-bold text-3xl pointer-events-none z-50';
+    effect.className = 'fixed text-green-400 font-bold text-4xl pointer-events-none z-50 animate-float';
     effect.style.left = '50%';
     effect.style.top = '40%';
     effect.style.transform = 'translate(-50%, -50%)';
-    effect.style.animation = 'float 1.2s ease-out forwards';
     document.body.appendChild(effect);
     setTimeout(() => effect.remove(), 1200);
   };
@@ -138,20 +187,20 @@ export default function Quiz() {
       setAnswered(false);
       const allOptions = document.querySelectorAll('.option-btn');
       allOptions.forEach((opt) => {
-        opt.classList.remove('bg-green-600', 'bg-red-600', 'success-pulse', 'shake', 'text-white');
+        opt.classList.remove('bg-green-500', 'bg-red-500', 'animate-pulse', 'text-white');
         opt.disabled = false;
       });
     } else {
       const timeTaken = totalTime + (timer - timeLeft);
       const score = {
-        correct: newAnswers.filter((a) => a.isCorrect).length,
-        wrong: newAnswers.filter((a) => !a.isCorrect).length,
+        correct,
+        wrong,
         skipped,
         total: questions.length,
       };
 
       try {
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/submit`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/submit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -165,60 +214,59 @@ export default function Quiz() {
             questions: newAnswers,
           }),
         });
+        if (!response.ok) {
+          throw new Error('Failed to submit quiz');
+        }
         router.push('/profile');
       } catch (error) {
-        console.error('Error submitting quiz:', error);
+        setError('Failed to submit quiz. Please try again.');
       }
     }
   };
 
-  const renderQuestion = (question) => {
-    return (
-      <MathJaxContext>
-        <MathJax>
-          {`\\[${question.questionText}\\]`}
-        </MathJax>
-      </MathJaxContext>
-    );
-  };
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="card text-center glassmorphism p-6 sm:p-10 rounded-3xl">
-          <p className="text-gray-600 mb-4">Please login to play the quiz</p>
-          <Link href="/login" className="btn-primary">
-            Login
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const renderQuestion = (question) => (
+    <MathJaxContext>
+      <MathJax className="text-2xl font-semibold text-white">{`\\[${question.questionText}\\]`}</MathJax>
+    </MathJaxContext>
+  );
 
   if (!difficulty) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="card max-w-md w-full glassmorphism p-6 sm:p-10 rounded-3xl">
-          <h1 className="text-3xl font-bold text-center mb-6 text-white">Choose Difficulty</h1>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-white">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+          <h1 className="text-3xl font-bold text-center mb-8 text-indigo-900">Choose Difficulty</h1>
+          {error && <p className="text-red-500 mb-6 text-center">{error}</p>}
           <div className="grid gap-4">
             {['easy', 'normal', 'hard', 'genius'].map((level) => (
               <button
                 key={level}
                 onClick={() => setDifficulty(level)}
-                className={`btn-secondary text-lg capitalize difficulty-btn difficulty-badge p-4 rounded-xl ${
+                className={`px-6 py-3 rounded-lg font-semibold text-white transition-all transform hover:scale-105 ${
                   level === 'easy'
-                    ? 'bg-green-600/30 border-green-500/40 hover:bg-green-600/40'
+                    ? 'bg-green-500 hover:bg-green-600'
                     : level === 'normal'
-                    ? 'bg-blue-600/30 border-blue-500/40 hover:bg-blue-600/40'
+                    ? 'bg-blue-500 hover:bg-blue-600'
                     : level === 'hard'
-                    ? 'bg-red-600/30 border-red-500/40 hover:bg-red-600/40'
-                    : 'bg-purple-600/30 border-purple-500/40 hover:bg-purple-600/40'
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-purple-500 hover:bg-purple-600'
                 }`}
               >
-                {level}
+                {level.charAt(0).toUpperCase() + level.slice(1)}
               </button>
             ))}
           </div>
+          <button
+            onClick={() => {
+              if (!user) {
+                register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).then(() => setDifficulty('easy'));
+              } else {
+                setDifficulty('easy');
+              }
+            }}
+            className="mt-6 w-full px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all"
+          >
+            Play as Guest
+          </button>
         </div>
       </div>
     );
@@ -226,11 +274,16 @@ export default function Quiz() {
 
   if (!questions) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="card text-center glassmorphism p-6 sm:p-10 rounded-3xl">
-          <button onClick={startQuiz} className="btn-primary">
-            Start Quiz
-          </button>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-white">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          {error && <p className="text-red-500 mb-6">{error}</p>}
+          {isLoading ? (
+            <p className="text-gray-600 text-lg">Loading quiz questions...</p>
+          ) : (
+            <button onClick={startQuiz} className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+              Start Quiz
+            </button>
+          )}
         </div>
       </div>
     );
@@ -239,63 +292,35 @@ export default function Quiz() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-blue-900 py-12">
       <div className="max-w-4xl w-full mx-4">
-        {!difficulty ? (
-          <div className="bg-white/10 backdrop-blur-lg p-8 rounded-3xl shadow-2xl">
-            <h1 className="text-3xl font-bold text-white text-center mb-8">Choose Difficulty</h1>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {['easy', 'normal', 'hard', 'genius'].map((level) => (
-                <button
-                  key={level}
-                  onClick={() => setDifficulty(level)}
-                  className={`p-6 rounded-2xl font-bold text-xl capitalize transition-all transform hover:scale-105 ${
-                    level === 'easy'
-                      ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400'
-                      : level === 'normal'
-                      ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400'
-                      : level === 'hard'
-                      ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
-                      : 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-400'
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
+        <div className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl">
+          <div className="flex justify-between mb-6">
+            <p className="text-white text-lg">Question {currentQuestion + 1}/{questions.length}</p>
+            <p className="text-white text-lg">Time Left: {timeLeft}s</p>
           </div>
-        ) : !questions ? (
-          <div className="text-center">
-            <button onClick={startQuiz} className="btn-primary text-xl px-12 py-6">
-              Start Quiz
-            </button>
-          </div>
-        ) : (
-          <div className="bg-white/10 backdrop-blur-lg p-8 rounded-3xl shadow-2xl">
-            <div className="mb-8">
-              {renderQuestion(questions[currentQuestion])}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {questions[currentQuestion].options.map((option, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleAnswer(option)}
-                  className="option-btn p-6 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xl font-semibold transition-all transform hover:scale-105"
-                  disabled={answered}
-                >
-                  <MathJax>{`\\[${option}\\]`}</MathJax>
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-4 mt-6">
+          {error && <p className="text-red-500 mb-6">{error}</p>}
+          <div className="mb-8">{renderQuestion(questions[currentQuestion])}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {questions[currentQuestion].options.map((option, index) => (
               <button
-                onClick={handleSkip}
-                className="flex-1 p-4 bg-yellow-600/30 border border-yellow-500/40 text-white rounded-xl font-semibold hover:bg-yellow-600/40 transition-all"
+                key={index}
+                onClick={() => handleAnswer(option)}
+                className="option-btn p-6 bg-white/20 hover:bg-white/30 text-white rounded-lg text-lg font-semibold transition-all transform hover:scale-105"
                 disabled={answered}
               >
-                skip
+                <MathJax>{`\\[${option}\\]`}</MathJax>
               </button>
-            </div>
+            ))}
           </div>
-        )}
+          <div className="flex gap-4 mt-6">
+            <button
+              onClick={handleSkip}
+              className="flex-1 p-4 bg-yellow-500/50 text-white rounded-lg font-semibold hover:bg-yellow-600/50 transition-all"
+              disabled={answered}
+            >
+              Skip
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
