@@ -16,7 +16,7 @@ export default function Profile() {
     username: '',
     profession: '',
     socialLinks: { twitter: '', linkedin: '', github: '' },
-    profilePicture: '',
+    profilePicture: 'https://res.cloudinary.com/dqovjmmlx/image/upload/v1754038761/defult-profile_whp2vd.jpg',
   });
   const [error, setError] = useState('');
 
@@ -34,20 +34,28 @@ export default function Profile() {
         },
       });
 
-      if (!res.ok) throw new Error('Failed to fetch profile');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to fetch profile');
+      }
 
       const data = await res.json();
+      if (!data.user) {
+        throw new Error('User data not found in response');
+      }
       setProfile(data);
       setFormData({
         username: data.user.username || '',
         profession: data.user.profession || '',
         socialLinks: data.user.socialLinks || { twitter: '', linkedin: '', github: '' },
-        profilePicture: data.user.profilePicture || 'https://res.cloudinary.com/dqovjmmlx/image/upload/v1754038761/defult-profile_whp2vd.jpg',
+        profilePicture:
+          data.user.profilePicture ||
+          'https://res.cloudinary.com/dqovjmmlx/image/upload/v1754038761/defult-profile_whp2vd.jpg',
       });
       setLoading(false);
     } catch (error) {
       console.error('Error fetching profile:', error);
-      setError('Failed to load profile. Please try again.');
+      setError(error.message || 'Failed to load profile. Please try again.');
       setLoading(false);
     }
   }, [user?.id]);
@@ -71,13 +79,12 @@ export default function Profile() {
         },
         body: JSON.stringify(formData),
       });
-      if (res.ok) {
-        setEditing(false);
-        fetchProfile();
-      } else {
+      if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message || 'Failed to update profile');
       }
+      setEditing(false);
+      fetchProfile();
     } catch (error) {
       console.error('Error updating profile:', error);
       setError(error.message || 'Failed to update profile. Please try again.');
@@ -100,8 +107,20 @@ export default function Profile() {
     return icons[badge] || '';
   };
 
-  if (loading || !profile) {
+  if (loading) {
     return <LoadingScreen />;
+  }
+
+  if (error || !profile || !profile.user || !user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto">
+          <p className="text-red-400 bg-red-900/20 backdrop-blur rounded-full px-6 py-3 text-center font-semibold">
+            {error || 'Profile not found or user not logged in.'}
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

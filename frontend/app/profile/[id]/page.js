@@ -29,14 +29,20 @@ export default function Profile({ params: paramsPromise }) {
         },
       });
 
-      if (!res.ok) throw new Error('Failed to fetch profile');
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to fetch profile');
+      }
 
       const data = await res.json();
+      if (!data.user) {
+        throw new Error('User data not found in response');
+      }
       setProfile(data);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching profile:', error);
-      setError('Failed to load profile. Please try again.');
+      setError(error.message || 'Failed to load profile. Please try again.');
       setLoading(false);
     }
   }, [profileId]);
@@ -55,8 +61,20 @@ export default function Profile({ params: paramsPromise }) {
     return icons[badge] || '';
   };
 
-  if (loading || !profile) {
+  if (loading) {
     return <LoadingScreen />;
+  }
+
+  if (error || !profile || !profile.user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto">
+          <p className="text-red-400 bg-red-900/20 backdrop-blur rounded-full px-6 py-3 text-center font-semibold">
+            {error || 'Profile not found.'}
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

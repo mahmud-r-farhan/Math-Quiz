@@ -7,6 +7,19 @@ import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 
 const AuthContext = createContext();
 
+async function safeFetchJSON(url, options = {}) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+
+  try {
+    const data = JSON.parse(text);
+    return { ok: res.ok, data };
+  } catch {
+    console.error(`Non-JSON response from ${url}:`, text.substring(0, 300));
+    return { ok: false, data: { message: 'Invalid JSON response from server' } };
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -15,46 +28,32 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // User signed in with Google
         const idToken = await firebaseUser.getIdToken();
-        try {
-          // Send Firebase ID token to backend to verify and get custom JWT
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idToken }),
-          });
-          const data = await response.json();
-          if (response.ok) {
-            localStorage.setItem('token', data.token);
-            setUser(data.user);
-          } else {
-            console.error('Google login failed:', data.message);
-            setUser(null);
-            localStorage.removeItem('token');
-          }
-        } catch (error) {
-          console.error('Error during Google login:', error);
+        const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        });
+
+        if (ok) {
+          localStorage.setItem('token', data.token);
+          setUser(data.user);
+        } else {
+          console.error('Google login failed:', data.message);
           setUser(null);
           localStorage.removeItem('token');
         }
       } else {
-        // Check for existing JWT in localStorage (for email/password or guest users)
         const token = localStorage.getItem('token');
         if (token) {
-          try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const data = await response.json();
-            if (response.ok) {
-              setUser(data.user);
-            } else {
-              localStorage.removeItem('token');
-              setUser(null);
-            }
-          } catch (error) {
-            console.error('Error fetching user profile:', error);
+          const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (ok) {
+            setUser(data.user);
+          } else {
+            console.error('Profile fetch failed:', data.message);
             localStorage.removeItem('token');
             setUser(null);
           }
@@ -69,13 +68,13 @@ export function AuthProvider({ children }) {
   }, []);
 
   const register = async (username, email, password, isGuest = false) => {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+    const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, email, password, isGuest }),
     });
-    const data = await response.json();
-    if (response.ok) {
+
+    if (ok) {
       localStorage.setItem('token', data.token);
       setUser(data.user);
     } else {
@@ -84,13 +83,13 @@ export function AuthProvider({ children }) {
   };
 
   const login = async (email, password) => {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+    const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const data = await response.json();
-    if (response.ok) {
+
+    if (ok) {
       localStorage.setItem('token', data.token);
       setUser(data.user);
     } else {
@@ -102,13 +101,13 @@ export function AuthProvider({ children }) {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const idToken = await result.user.getIdToken();
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
+      const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken }),
       });
-      const data = await response.json();
-      if (response.ok) {
+
+      if (ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
         router.push('/profile');

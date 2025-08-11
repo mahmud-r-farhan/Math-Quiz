@@ -32,7 +32,7 @@ export default function Leaderboard() {
     });
 
     socket.on('connect_error', (err) => {
-      console.error('Socket connection error:', err.message, err.stack);
+      console.log('Socket connection error:', err.message, err.stack);
     });
 
     const fetchLeaderboard = async () => {

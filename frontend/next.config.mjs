@@ -16,6 +16,18 @@ const nextConfig = {
       },
     ],
   },
+
+  async headers() {
+  return [
+    {
+      source: '/__/auth/(.*)',
+      headers: [
+        { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+        { key: 'Cross-Origin-Embedder-Policy', value: 'unsafe-none' },
+      ],
+    },
+  ];
+}
 };
 
 export default nextConfig;

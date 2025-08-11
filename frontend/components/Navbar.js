@@ -106,8 +106,8 @@ export default function Navbar() {
                   
                   {/* User Avatar & Dropdown */}
                   <div className="flex items-center gap-3 ml-2 px-4 py-2 bg-slate-800/50 rounded-xl border border-slate-700/50">
-                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                      <span className="text-sm font-bold text-white">
+                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center" title="User.email?.[0]?.toUpperCase()">
+                      <span className="text-sm font-bold text-white" >
                         {user.email?.[0]?.toUpperCase() || 'U'}
                       </span>
                     </div>
