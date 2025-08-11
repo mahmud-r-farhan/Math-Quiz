@@ -2,27 +2,29 @@
 
 import Image from 'next/image';
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
-export default function FeedbackSection() {
-  const { user } = useAuth();
-  const [feedback, setFeedback] = useState([]);
-  const [feedbackForm, setFeedbackForm] = useState({ content: '', rating: 5 });
-  const [loading, setLoading] = useState(false);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
+  export default function FeedbackSection() {
+    const { user } = useAuth();
+    const [feedback, setFeedback] = useState([]);
+    const [feedbackForm, setFeedbackForm] = useState({ content: '', rating: 5 });
+    const [loading, setLoading] = useState(false);
+    const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  const fetchFeedback = useCallback(async () => {
+      const fetchFeedback = useCallback(async () => {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/feedback`);
+      if (!res.ok) throw new Error('Failed to fetch feedback');
       const data = await res.json();
       setFeedback(data.feedback);
       if (user && data.feedback.some((f) => f.user._id === user._id)) {
-        setHasSubmitted(true);
+        // Do something
       }
     } catch (error) {
       console.error('Error fetching feedback:', error);
     }
   }, [user]);
+
 
   useEffect(() => {
     fetchFeedback();

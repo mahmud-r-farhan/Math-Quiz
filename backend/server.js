@@ -20,6 +20,7 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  transports: ['websocket', 'polling'],
   reconnection: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 1000,
@@ -58,7 +59,7 @@ io.use((socket, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.userId = decoded.id;
-    socket.join('all'); // Join global room for leaderboard updates
+    socket.join('all');
     next();
   } catch (error) {
     console.error('Socket auth error:', error.message);

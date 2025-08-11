@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import Image from 'next/image'
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -47,7 +48,7 @@ export default function Navbar() {
     <>
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled 
-          ? 'bg-slate-900/95 backdrop-blur-xl shadow-2xl shadow-slate-900/50' 
+          ? 'bg-slate-900/95 backdrop-blur-xl shadow-2xl shadow-slate-900/40' 
           : 'bg-slate-900/80 backdrop-blur-md'
       }`}>
         {/* Gradient border */}
@@ -59,9 +60,12 @@ export default function Navbar() {
             <Link href="/" className="flex items-center gap-3 group">
               <div className="relative">
                 <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg group-hover:shadow-amber-400/30 transition-all duration-300 group-hover:scale-110">
-                  <svg className="w-6 h-6 text-slate-900 font-bold" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V8zm0 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
-                  </svg>
+                  <Image
+                  src="/logo.png"
+                  alt="Math Quiz Logo"
+                  width={500}
+                  height={500}
+                />
                 </div>
                 {/* Notification dot for active quizzes (example) */}
                 {user && (

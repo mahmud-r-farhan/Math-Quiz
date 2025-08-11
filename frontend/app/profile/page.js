@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import Image from 'next/image';
 import Link from 'next/link';
-import LoadingScreen from '@/components/Loading';
+import LoadingScreen from '../../components/Loading';
 import { FaTwitter, FaLinkedin, FaGithub } from 'react-icons/fa';
 
 export default function Profile() {

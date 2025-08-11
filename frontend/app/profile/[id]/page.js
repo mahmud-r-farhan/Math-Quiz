@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import LoadingScreen from '@/components/Loading';
+import LoadingScreen from '../../../components/Loading';
 import { FaTwitter, FaLinkedin, FaGithub } from 'react-icons/fa';
 import { use } from 'react';
 

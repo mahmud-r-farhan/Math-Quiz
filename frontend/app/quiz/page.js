@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Howl } from 'howler';
@@ -86,9 +86,13 @@ export default function Quiz() {
               questions: newAnswers,
             }),
           });
-          if (!response.ok) throw new Error('Failed to submit quiz');
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to submit quiz');
+          }
           router.push('/profile');
-        } catch {
+        } catch (err) {
+          console.error('Quiz submission error:', err);
           setError('Failed to submit quiz. Please try again.');
         }
       }
@@ -111,26 +115,34 @@ export default function Quiz() {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token && !user) {
-      register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).catch(() => {
+      register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).catch((err) => {
+        console.error('Guest registration error:', err);
         setError('Failed to create guest account');
       });
     }
 
-    const newSocket = io(process.env.NEXT_PUBLIC_API_URL, {
-      auth: { token: localStorage.getItem('token') },
+    const socketUrl = process.env.NEXT_PUBLIC_API_URL;
+    console.log('Connecting to Socket.IO server:', socketUrl, 'with token:', token);
+    const newSocket = io(socketUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
-    newSocket.on('connect', () => console.log('Socket connected:', newSocket.id));
+    newSocket.on('connect', () => {
+      console.log('Socket connected:', newSocket.id);
+    });
 
     newSocket.on('connect_error', (err) => {
-      console.error('Socket connection error:', err.message);
+      console.error('Socket connection error:', err.message, err.stack);
       setIsLoading(false);
       setError('Failed to connect to the server. Please try again.');
     });
 
     newSocket.on('quizQuestions', ({ questions }) => {
+      console.log('Received quiz questions:', questions);
       setQuestions(questions);
       setTimer(60);
       setAnswered(false);
@@ -139,6 +151,7 @@ export default function Quiz() {
     });
 
     newSocket.on('error', ({ message }) => {
+      console.error('Socket error:', message);
       setIsLoading(false);
       setError(message);
     });
@@ -150,7 +163,10 @@ export default function Quiz() {
 
     setSocket(newSocket);
 
-    return () => newSocket.disconnect();
+    return () => {
+      console.log('Disconnecting socket:', newSocket.id);
+      newSocket.disconnect();
+    };
   }, [user, register]);
 
   useEffect(() => {
@@ -191,6 +207,7 @@ export default function Quiz() {
     }
     setIsLoading(true);
     setError(null);
+    console.log('Emitting startQuiz with:', { difficulty, optionCount: 4, userId: user.id });
     socket.emit('startQuiz', { difficulty, optionCount: 4, userId: user.id });
   };
 
@@ -324,7 +341,11 @@ export default function Quiz() {
             <div className="flex items-center justify-center gap-2 text-slate-200 text-base sm:text-lg">
               <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
               </svg>
               Loading quiz questions...
             </div>

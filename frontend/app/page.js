@@ -1,9 +1,10 @@
 'use client';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useAuth } from '@/context/AuthContext';
-import FeedbackSection from '@/components/FeedbackSection';
+import { useAuth } from '../context/AuthContext';
+import FeedbackSection from '../components/FeedbackSection';
 import { LuBrainCircuit } from "react-icons/lu";
+import { FaUser } from "react-icons/fa";
 
 export default function Home() {
   const { user } = useAuth();
@@ -60,13 +61,17 @@ export default function Home() {
                 href="/quiz"
                 className="group px-10 py-5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl font-bold text-lg hover:from-emerald-600 hover:to-teal-700 transition-all duration-300 transform hover:scale-105 shadow-2xl hover:shadow-emerald-500/25 flex items-center gap-3"
               >
-                <svg className="w-6 h-6 group-hover:rotate-12 transition-transform" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 1.414L10.586 9.5H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
-                </svg>
+                <FaUser />
                 Start Training
               </Link>
             ) : (
               <>
+                <Link
+                  href="/login"
+                  className="px-10 py-5 bg-slate-800/50 backdrop-blur text-slate-200 border-2 border-slate-600 rounded-2xl font-semibold text-lg hover:bg-slate-700/50 hover:border-slate-500 transition-all duration-300 transform hover:scale-105"
+                >
+                  Sign In
+                </Link>
                 <Link
                   href="/register"
                   className="group px-10 py-5 bg-gradient-to-r from-blue-600 to-purple-700 text-white rounded-2xl font-bold text-lg hover:from-blue-700 hover:to-purple-800 transition-all duration-300 transform hover:scale-105 shadow-2xl hover:shadow-blue-500/25 flex items-center gap-3"
@@ -76,12 +81,7 @@ export default function Home() {
                   </svg>
                   Begin Journey
                 </Link>
-                <Link
-                  href="/login"
-                  className="px-10 py-5 bg-slate-800/50 backdrop-blur text-slate-200 border-2 border-slate-600 rounded-2xl font-semibold text-lg hover:bg-slate-700/50 hover:border-slate-500 transition-all duration-300 transform hover:scale-105"
-                >
-                  Sign In
-                </Link>
+              
               </>
             )}
             
