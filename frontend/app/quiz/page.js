@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -29,14 +29,89 @@ export default function Quiz() {
   const { user, register } = useAuth();
   const router = useRouter();
 
-  const correctSound = new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057857/correct-6033_d2x1ks.mp3'] });
-  const wrongSound = new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057858/wrong-answer-126515_ezcctf.mp3'] });
-  const skipSound = new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057857/wrong-answer-129254_ppodzv.mp3'] });
+  // Sound effects with useMemo so they don't recreate each render
+  const correctSound = useMemo(
+    () => new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057857/correct-6033_d2x1ks.mp3'] }),
+    []
+  );
+  const wrongSound = useMemo(
+    () => new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057858/wrong-answer-126515_ezcctf.mp3'] }),
+    []
+  );
+  const skipSound = useMemo(
+    () => new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057857/wrong-answer-129254_ppodzv.mp3'] }),
+    []
+  );
+
+  // Highlight correct answer
+  const highlightCorrectAnswer = useCallback(() => {
+    const allOptions = document.querySelectorAll('.option-btn');
+    allOptions.forEach((opt) => {
+      if (opt.textContent === questions[currentQuestion].correctAnswer) {
+        opt.classList.add('bg-emerald-500', 'animate-pulse', 'text-white');
+      } else if (opt.textContent === answers[answers.length - 1]?.userAnswer) {
+        opt.classList.add('bg-red-500', 'text-white');
+      }
+      opt.disabled = true;
+    });
+  }, [questions, currentQuestion, answers]);
+
+  // Go to next question or end quiz
+  const nextQuestion = useCallback(
+    async (newAnswers) => {
+      if (currentQuestion + 1 < questions.length) {
+        setCurrentQuestion((prev) => prev + 1);
+        setAnswered(false);
+        const allOptions = document.querySelectorAll('.option-btn');
+        allOptions.forEach((opt) => {
+          opt.classList.remove('bg-emerald-500', 'bg-red-500', 'animate-pulse', 'text-white');
+          opt.disabled = false;
+        });
+      } else {
+        const timeTaken = totalTime + (timer - timeLeft);
+        const score = { correct, wrong, skipped, total: questions.length };
+
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('token')}`,
+            },
+            body: JSON.stringify({
+              difficulty,
+              score,
+              timeTaken,
+              maxStreak,
+              questions: newAnswers,
+            }),
+          });
+          if (!response.ok) throw new Error('Failed to submit quiz');
+          router.push('/profile');
+        } catch {
+          setError('Failed to submit quiz. Please try again.');
+        }
+      }
+    },
+    [currentQuestion, questions, totalTime, timer, timeLeft, correct, wrong, skipped, difficulty, maxStreak, router]
+  );
+
+  // Skip handler
+  const handleSkip = useCallback(() => {
+    if (answered) return;
+    setAnswered(true);
+    setSkipped((prev) => prev + 1);
+    setStreak(0);
+    skipSound.play();
+    highlightCorrectAnswer();
+    setTotalTime((prev) => prev + (timer - timeLeft));
+    setTimeout(() => nextQuestion(answers), 1500);
+  }, [answered, answers, timeLeft, timer, skipSound, highlightCorrectAnswer, nextQuestion]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token && !user) {
-      register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).catch((err) => {
+      register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).catch(() => {
         setError('Failed to create guest account');
       });
     }
@@ -47,9 +122,7 @@ export default function Quiz() {
       reconnectionAttempts: 5,
     });
 
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
-    });
+    newSocket.on('connect', () => console.log('Socket connected:', newSocket.id));
 
     newSocket.on('connect_error', (err) => {
       console.error('Socket connection error:', err.message);
@@ -77,9 +150,7 @@ export default function Quiz() {
 
     setSocket(newSocket);
 
-    return () => {
-      newSocket.disconnect();
-    };
+    return () => newSocket.disconnect();
   }, [user, register]);
 
   useEffect(() => {
@@ -94,17 +165,6 @@ export default function Quiz() {
     }
     return () => clearTimeout(timeout);
   }, [isLoading, questions]);
-
-  const handleSkip = useCallback(() => {
-    if (answered) return;
-    setAnswered(true);
-    setSkipped((prev) => prev + 1);
-    setStreak(0);
-    skipSound.play();
-    highlightCorrectAnswer();
-    setTotalTime((prev) => prev + (timer - timeLeft));
-    setTimeout(() => nextQuestion(answers), 1500);
-  }, [answered, answers, timeLeft, timer]);
 
   useEffect(() => {
     let timerInterval;
@@ -140,11 +200,7 @@ export default function Quiz() {
     const isCorrect = selectedAnswer === questions[currentQuestion].correctAnswer;
     const newAnswers = [
       ...answers,
-      {
-        ...questions[currentQuestion],
-        userAnswer: selectedAnswer,
-        isCorrect,
-      },
+      { ...questions[currentQuestion], userAnswer: selectedAnswer, isCorrect },
     ];
     setAnswers(newAnswers);
 
@@ -166,18 +222,6 @@ export default function Quiz() {
     setTimeout(() => nextQuestion(newAnswers), 1500);
   };
 
-  const highlightCorrectAnswer = () => {
-    const allOptions = document.querySelectorAll('.option-btn');
-    allOptions.forEach((opt) => {
-      if (opt.textContent === questions[currentQuestion].correctAnswer) {
-        opt.classList.add('bg-emerald-500', 'animate-pulse', 'text-white');
-      } else if (opt.textContent === answers[answers.length - 1]?.userAnswer) {
-        opt.classList.add('bg-red-500', 'text-white');
-      }
-      opt.disabled = true;
-    });
-  };
-
   const createSuccessEffect = () => {
     const effect = document.createElement('div');
     effect.textContent = '+1';
@@ -187,49 +231,6 @@ export default function Quiz() {
     effect.style.transform = 'translate(-50%, -50%)';
     document.body.appendChild(effect);
     setTimeout(() => effect.remove(), 1200);
-  };
-
-  const nextQuestion = async (newAnswers) => {
-    if (currentQuestion + 1 < questions.length) {
-      setCurrentQuestion((prev) => prev + 1);
-      setAnswered(false);
-      const allOptions = document.querySelectorAll('.option-btn');
-      allOptions.forEach((opt) => {
-        opt.classList.remove('bg-emerald-500', 'bg-red-500', 'animate-pulse', 'text-white');
-        opt.disabled = false;
-      });
-    } else {
-      const timeTaken = totalTime + (timer - timeLeft);
-      const score = {
-        correct,
-        wrong,
-        skipped,
-        total: questions.length,
-      };
-
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/submit`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-          body: JSON.stringify({
-            difficulty,
-            score,
-            timeTaken,
-            maxStreak,
-            questions: newAnswers,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error('Failed to submit quiz');
-        }
-        router.push('/profile');
-      } catch (error) {
-        setError('Failed to submit quiz. Please try again.');
-      }
-    }
   };
 
   const renderQuestion = (question) => (

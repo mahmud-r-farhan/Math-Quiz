@@ -16,35 +16,35 @@ export default function Leaderboard() {
   const itemsPerPage = 10;
 
   useEffect(() => {
-    const socket = io(process.env.NEXT_PUBLIC_API_URL, {
-      auth: { token: localStorage.getItem('token') },
-      reconnection: true,
-      reconnectionAttempts: 5,
-    });
+  const socket = io(process.env.NEXT_PUBLIC_API_URL, {
+    auth: { token: localStorage.getItem('token') },
+    reconnection: true,
+    reconnectionAttempts: 5,
+  });
 
     const fetchLeaderboard = async () => {
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/leaderboard`);
-        if (!res.ok) throw new Error('Failed to fetch leaderboard');
-        const data = await res.json();
-        setLeaderboard(data.users);
-        setFilteredLeaderboard(data.users);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching leaderboard:', error);
-        setLoading(false);
-      }
-    };
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/leaderboard`);
+      if (!res.ok) throw new Error('Failed to fetch leaderboard');
+      const data = await res.json();
+      setLeaderboard(data.users);
+      setFilteredLeaderboard(data.users);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching leaderboard:', error);
+      setLoading(false);
+    }
+  };
 
-    fetchLeaderboard();
+  fetchLeaderboard();
 
-    socket.on('leaderboardUpdate', ({ users }) => {
-      setLeaderboard(users);
-      applyFilters(users, badgeFilter, pointsFilter);
-    });
+  socket.on('leaderboardUpdate', ({ users }) => {
+    setLeaderboard(users);
+    applyFilters(users, badgeFilter, pointsFilter); // Apply filter with new state values
+  });
 
-    return () => socket.disconnect();
-  }, []);
+  return () => socket.disconnect();
+}, [badgeFilter, pointsFilter]);
 
   const applyFilters = (users, badge, points) => {
     let filtered = [...users];

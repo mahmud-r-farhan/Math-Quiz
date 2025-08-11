@@ -65,14 +65,14 @@ export default function NotFound() {
               <span className="text-amber-400">Error:</span> <span className="text-red-400">PageNotFoundException</span>
             </div>
             <div className="text-slate-300 text-lg leading-relaxed">
-              The mathematical path you're looking for seems to have been 
+              The mathematical path you&apos;re looking for seems to have been 
               <span className="text-blue-400 font-semibold"> divided by zero</span> or 
               <span className="text-purple-400 font-semibold"> lost in an infinite loop</span>.
             </div>
           </div>
 
           <p className="text-xl text-slate-400 mb-8">
-            Don't worry, even the greatest mathematicians make calculation errors sometimes!
+            Don&apos;t worry, even the greatest mathematicians make calculation errors sometimes!
           </p>
         </div>
 

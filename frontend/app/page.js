@@ -50,7 +50,7 @@ export default function Home() {
           </p>
           
           <p className="text-lg text-slate-400 max-w-2xl mx-auto mb-12">
-            Join thousands of students who've improved their math scores by an average of 40% in just 30 days.
+            Join thousands of students who&apos;ve improved their math scores by an average of 40% in just 30 days.
           </p>
 
           {/* CTA Buttons */}
