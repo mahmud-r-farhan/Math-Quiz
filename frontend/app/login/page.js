@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import Link from 'next/link';
 import { AiOutlineEye, AiOutlineEyeInvisible } from 'react-icons/ai';
+import { toast } from 'sonner';
 
 export default function Login() {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -23,6 +24,7 @@ export default function Login() {
       router.push('/profile');
     } catch (err) {
       setError(err.message || 'Login failed');
+      toast.warning(err.message || 'Login Faild');
     } finally {
       setLoading(false);
     }
@@ -132,6 +134,14 @@ export default function Login() {
               'Sign In'
             )}
           </button>
+          <label className="block text-sm font-medium text-slate-300">
+            <Link 
+            href="/reset-password" 
+            className="text-blue-400 hover:text-blue-300 font-semibold transition-colors duration-300 underline-offset-2 hover:underline"
+          >
+            Reset Password?
+          </Link>
+            </label>
         </form>
         
         <div className="relative my-4 sm:my-6">

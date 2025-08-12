@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden flex items-center justify-center px-4">
+    <div className="min-h-screen top-20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden flex items-center justify-center px-4">
       {/* Background mathematical symbols */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute top-20 left-10 text-6xl text-amber-400 font-bold animate-pulse">π</div>

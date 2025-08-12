@@ -4,17 +4,22 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, googleProvider } from '../lib/firebase';
 import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
-import { connectSocket } from '../utility/socket';
+import { connectSocket, disconnectSocket } from '../utility/socket';
+
 const AuthContext = createContext();
 
 async function safeFetchJSON(url, options = {}) {
-  const res = await fetch(url, options);
-  const text = await res.text();
   try {
-    const data = JSON.parse(text);
-    return { ok: res.ok, data };
-  } catch {
-    return { ok: false, data: { message: 'Invalid JSON response from server' } };
+    const res = await fetch(url, options);
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      return { ok: false, status: res.status, data: { message: 'Invalid JSON response from server' } };
+    }
+  } catch (error) {
+    return { ok: false, status: 0, data: { message: 'Network error' } };
   }
 }
 
@@ -29,7 +34,7 @@ export function AuthProvider({ children }) {
       try {
         if (firebaseUser) {
           const idToken = await firebaseUser.getIdToken();
-          const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
+          const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ idToken }),
@@ -38,24 +43,24 @@ export function AuthProvider({ children }) {
           if (ok) {
             localStorage.setItem('token', data.token);
             setUser(data.user);
-            connectSocket(data.token); // Connect socket for Firebase user
+            connectSocket(data.token);
           } else {
-            console.log('Google login failed:', data.message);
+            console.log('Google login failed:', data.message, { status });
             localStorage.removeItem('token');
             setUser(null);
           }
         } else {
           const token = localStorage.getItem('token');
           if (token) {
-            const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
+            const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
               headers: { Authorization: `Bearer ${token}` },
             });
 
             if (ok) {
               setUser(data.user);
-              connectSocket(token); // Connect socket for token-based user
+              connectSocket(token);
             } else {
-              console.log('Profile fetch failed:', data.message);
+              console.log('Profile fetch failed:', data.message, { status });
               localStorage.removeItem('token');
               setUser(null);
             }
@@ -64,7 +69,7 @@ export function AuthProvider({ children }) {
           }
         }
       } catch (error) {
-        console.log('Auth state check error:', error);
+        console.log('Auth state check error:', error.message, error.stack);
         localStorage.removeItem('token');
         setUser(null);
       } finally {
@@ -77,7 +82,7 @@ export function AuthProvider({ children }) {
 
   const register = async (username, email, password, isGuest = false) => {
     try {
-      const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+      const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, email, password, isGuest }),
@@ -86,38 +91,45 @@ export function AuthProvider({ children }) {
       if (ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
-        connectSocket(data.token); // Connect socket after registration
+        connectSocket(data.token);
         router.push('/profile');
       } else {
         throw new Error(data.message || 'Registration failed');
       }
     } catch (error) {
-      console.log('Registration error:', error);
+      console.log('Registration error:', error.message, error.stack);
       throw error;
     }
   };
 
   const login = async (email, password) => {
-    const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (ok) {
-      localStorage.setItem('token', data.token);
-      setUser(data.user);
-      connectSocket(data.token); // Connect socket after login
-    } else {
-      throw new Error(data.message || 'Login failed');
+      if (ok) {
+        localStorage.setItem('token', data.token);
+        setUser(data.user);
+        connectSocket(data.token);
+        router.push('/profile');
+      } else {
+        throw new Error(data.message || 'Login failed');
+      }
+    } catch (error) {
+      console.log('Login error:', error.message, error.stack);
+      throw error;
     }
   };
 
   const googleLogin = async (retryCount = 0) => {
+    const maxRetries = 2;
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const idToken = await result.user.getIdToken();
-      const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
+      const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idToken }),
@@ -126,19 +138,68 @@ export function AuthProvider({ children }) {
       if (ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
-        connectSocket(data.token); // Connect socket after Google login
+        connectSocket(data.token);
         router.push('/profile');
       } else {
-        if (retryCount < 2) {
-          console.log('Retrying Google login...');
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (retryCount < maxRetries && status >= 500) {
+          console.log(`Google login retry ${retryCount + 1}/${maxRetries}: Server error`, { status, message: data.message });
+          await new Promise((resolve) => setTimeout(resolve, 1000 * (retryCount + 1)));
           return googleLogin(retryCount + 1);
         }
         throw new Error(data.message || 'Google login failed');
       }
     } catch (error) {
       console.log('Google login error:', error.message, error.stack);
+      if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+        throw new Error('Google login cancelled');
+      }
+      if (retryCount < maxRetries && error.message.includes('network')) {
+        console.log(`Google login retry ${retryCount + 1}/${maxRetries}: Network error`);
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (retryCount + 1)));
+        return googleLogin(retryCount + 1);
+      }
       throw new Error('Google authentication failed. Please try again.');
+    }
+  };
+
+  const resetPasswordRequest = async (email) => {
+    try {
+      const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/reset-password/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      if (ok) {
+        return data;
+      } else {
+        throw new Error(data.message || 'Failed to send OTP');
+      }
+    } catch (error) {
+      console.log('Reset password request error:', error.message, error.stack);
+      throw error;
+    }
+  };
+
+  const resetPasswordVerify = async (email, otp, newPassword) => {
+    try {
+      const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/reset-password/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp, newPassword }),
+      });
+
+      if (ok) {
+        localStorage.setItem('token', data.token);
+        setUser(data.user);
+        connectSocket(data.token);
+        return data;
+      } else {
+        throw new Error(data.message || 'Failed to reset password');
+      }
+    } catch (error) {
+      console.log('Reset password verify error:', error.message, error.stack);
+      throw error;
     }
   };
 
@@ -147,15 +208,26 @@ export function AuthProvider({ children }) {
       await auth.signOut();
       localStorage.removeItem('token');
       setUser(null);
-      disconnectSocket(); // Disconnect socket on logout
+      disconnectSocket();
       router.push('/login');
     } catch (error) {
-      console.log('Logout error:', error);
+      console.log('Logout error:', error.message, error.stack);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, register, login, googleLogin, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        register,
+        login,
+        googleLogin,
+        resetPasswordRequest,
+        resetPasswordVerify,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

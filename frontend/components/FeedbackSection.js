@@ -14,7 +14,6 @@ export default function FeedbackSection() {
   const fetchFeedback = useCallback(async () => {
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/feedback`);
-      if (!res.ok) throw new Error('Failed to fetch feedback');
       const data = await res.json();
       const cleanFeedback = data.feedback.filter((f) => f.user);
       setFeedback(cleanFeedback);
@@ -31,7 +30,6 @@ export default function FeedbackSection() {
           Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
       });
-      if (!res.ok) throw new Error('Failed to check feedback status');
       const data = await res.json();
       setHasSubmitted(data.hasSubmitted);
     } catch (error) {

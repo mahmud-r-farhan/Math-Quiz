@@ -10,11 +10,9 @@ router.post('/questions', auth, async (req, res) => {
   try {
     const { difficulty, optionCount } = req.body;
     if (!['easy', 'normal', 'hard', 'genius'].includes(difficulty)) {
-      console.error('Invalid difficulty:', difficulty);
       return res.status(400).json({ message: 'Invalid difficulty' });
     }
     if (![4, 6].includes(optionCount)) {
-      console.error('Invalid option count:', optionCount);
       return res.status(400).json({ message: 'Invalid option count' });
     }
 
@@ -26,7 +24,6 @@ router.post('/questions', auth, async (req, res) => {
     });
     res.json({ questions });
   } catch (error) {
-    console.error('Quiz questions error:', error.message, error.stack);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -57,7 +54,6 @@ router.post('/submit', async (req, res) => {
     }
 
     if (missingFields.length > 0) {
-      console.error('Validation failed:', { missingFields, payload: req.body });
       return res.status(400).json({ message: `Missing or invalid required fields: ${missingFields.join(', ')}` });
     }
 
@@ -67,7 +63,6 @@ router.post('/submit', async (req, res) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.id;
       } catch (err) {
-        console.warn('Invalid token, treating as guest:', err.message);
       }
     }
 
@@ -112,14 +107,12 @@ router.post('/submit', async (req, res) => {
           const leaderboard = await User.find().sort({ points: -1 }).limit(10).select('username points profilePicture badges');
           req.io.to('all').emit('leaderboardUpdate', { users: leaderboard });
         } catch (socketError) {
-          console.error('Socket.IO emission error:', socketError.message);
         }
       }
     }
 
     res.status(201).json({ gameResult });
   } catch (error) {
-    console.error('Quiz submission error:', error.message, error.stack, { payload: req.body });
     res.status(500).json({ message: `Failed to submit quiz: ${error.message}` });
   }
 });

@@ -1,5 +1,6 @@
 import { AuthProvider } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
+import { Toaster } from 'sonner';
 import './globals.css';
 
 export const metadata = {
@@ -14,6 +15,7 @@ export default function RootLayout({ children }) {
         <AuthProvider>
           <Navbar />
           {children}
+          <Toaster richColors position="top-right" />
         </AuthProvider>
       </body>
     </html>

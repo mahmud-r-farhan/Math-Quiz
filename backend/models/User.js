@@ -19,11 +19,16 @@ const userSchema = new mongoose.Schema({
   gameHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'GameResult' }],
   createdAt: { type: Date, default: Date.now },
   isGuest: { type: Boolean, default: false },
-  guestId: { type: String, unique: true, sparse: true }, // Added for guest accounts
+  guestId: { type: String, unique: true, sparse: true },
+  resetPasswordOTP: { type: String }, // Added for password reset
+  resetPasswordExpires: { type: Date }, // Added for password reset
 });
 
 // Index for efficient cleanup of guest accounts
 userSchema.index({ isGuest: 1, createdAt: 1 });
+
+// Index for password reset cleanup
+userSchema.index({ resetPasswordExpires: 1 }, { expireAfterSeconds: 0 });
 
 // Update badges based on points before saving
 userSchema.pre('save', function (next) {

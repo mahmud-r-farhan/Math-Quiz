@@ -59,6 +59,19 @@ cron.schedule('0 0 * * *', async () => {
   }
 });
 
+// Schedule expired OTP cleanup (runs every hour)
+cron.schedule('0 * * * *', async () => {
+  console.log('Running expired OTP cleanup');
+  try {
+    await User.deleteMany({
+      resetPasswordExpires: { $lt: new Date() },
+      resetPasswordOTP: { $exists: true },
+    });
+  } catch (error) {
+    console.error('Scheduled OTP cleanup failed:', error.message);
+  }
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
