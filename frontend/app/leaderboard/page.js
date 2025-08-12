@@ -18,7 +18,7 @@ export default function Leaderboard() {
   useEffect(() => {
     const token = localStorage.getItem('token');
     const socketUrl = process.env.NEXT_PUBLIC_API_URL;
-    console.log('Connecting to Socket.IO server:', socketUrl, 'with token:', token);
+   // console.log('Connecting to Socket.IO server:', socketUrl, 'with token:', token);
     const socket = io(socketUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
@@ -28,11 +28,11 @@ export default function Leaderboard() {
     });
 
     socket.on('connect', () => {
-      console.log('Socket connected:', socket.id);
+      console.log('Socket connected');
     });
 
     socket.on('connect_error', (err) => {
-      console.log('Socket connection error:', err.message, err.stack);
+      console.log('Socket connection error [...]');
     });
 
     const fetchLeaderboard = async () => {
@@ -59,13 +59,13 @@ export default function Leaderboard() {
     fetchLeaderboard();
 
     socket.on('leaderboardUpdate', ({ users }) => {
-      console.log('Received leaderboard update:', users);
+      console.log('Received leaderboard updated');
       setLeaderboard(users);
       applyFilters(users, badgeFilter, pointsFilter);
     });
 
     return () => {
-      console.log('Disconnecting socket:', socket.id);
+      console.log('Disconnecting socket Server');
       socket.disconnect();
     };
   }, [badgeFilter, pointsFilter]);

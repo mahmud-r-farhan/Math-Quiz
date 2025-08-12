@@ -1,4 +1,5 @@
 import React from 'react';
+import Image from 'next/image';
 
 const Loading = () => {
   return (
@@ -42,7 +43,13 @@ const Loading = () => {
             {/* Inner pulsing core */}
             <div className="absolute inset-6 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-slate-700 flex items-center justify-center animate-pulse">
               <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
-                MQ
+               <Image 
+               src="/logo.png" 
+               width={500}
+               height={500}
+               alt="MATH QUIZ LOGO"
+               className="rounded-full"
+               />
               </div>
             </div>
           </div>

@@ -3,11 +3,15 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { Howl } from 'howler';
-import { MathJax, MathJaxContext } from 'better-react-mathjax';
+import { MathJaxContext } from 'better-react-mathjax';
 import io from 'socket.io-client';
 import confetti from 'canvas-confetti';
+import DifficultySelector from './DifficultySelector';
+import QuizQuestion from './QuizQuestion';
+import QuizControls from './QuizControls';
+import LoadingSpinner from './QuizLoading';
+import QuizResultModal from './QuizResultModal';
 
 export default function Quiz() {
   const [difficulty, setDifficulty] = useState('');
@@ -26,10 +30,37 @@ export default function Quiz() {
   const [socket, setSocket] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const { user, register } = useAuth();
+  const [socketError, setSocketError] = useState(null);
+  const [showModal, setShowModal] = useState(false); // Added
+  const [gameResult, setGameResult] = useState(null); // Added
+  const { user } = useAuth();
   const router = useRouter();
 
-  // Sound effects with useMemo so they don't recreate each render
+  const mathJaxConfig = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true,
+      processEnvironments: true,
+    },
+    options: {
+      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+      ignoreHtmlClass: 'tex2jax_ignore',
+      processHtmlClass: 'tex2jax_process',
+    },
+    loader: {
+      load: ['input/tex', 'output/svg'],
+    },
+    startup: {
+      typeset: true,
+      pageReady: () => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('MathJax initialized');
+        }
+      },
+    },
+  };
+
   const correctSound = useMemo(
     () => new Howl({ src: ['https://res.cloudinary.com/dqovjmmlx/video/upload/v1754057857/correct-6033_d2x1ks.mp3'] }),
     []
@@ -43,203 +74,12 @@ export default function Quiz() {
     []
   );
 
-  // Highlight correct answer
-  const highlightCorrectAnswer = useCallback(() => {
-    const allOptions = document.querySelectorAll('.option-btn');
-    allOptions.forEach((opt) => {
-      if (opt.textContent === questions[currentQuestion].correctAnswer) {
-        opt.classList.add('bg-emerald-500', 'animate-pulse', 'text-white');
-      } else if (opt.textContent === answers[answers.length - 1]?.userAnswer) {
-        opt.classList.add('bg-red-500', 'text-white');
-      }
-      opt.disabled = true;
+  const createSuccessEffect = useCallback(() => {
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
     });
-  }, [questions, currentQuestion, answers]);
-
-  // Go to next question or end quiz
-  const nextQuestion = useCallback(
-    async (newAnswers) => {
-      if (currentQuestion + 1 < questions.length) {
-        setCurrentQuestion((prev) => prev + 1);
-        setAnswered(false);
-        const allOptions = document.querySelectorAll('.option-btn');
-        allOptions.forEach((opt) => {
-          opt.classList.remove('bg-emerald-500', 'bg-red-500', 'animate-pulse', 'text-white');
-          opt.disabled = false;
-        });
-      } else {
-        const timeTaken = totalTime + (timer - timeLeft);
-        const score = { correct, wrong, skipped, total: questions.length };
-
-        try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/submit`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('token')}`,
-            },
-            body: JSON.stringify({
-              difficulty,
-              score,
-              timeTaken,
-              maxStreak,
-              questions: newAnswers,
-            }),
-          });
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Failed to submit quiz');
-          }
-          router.push('/profile');
-        } catch (err) {
-          console.error('Quiz submission error:', err);
-          setError('Failed to submit quiz. Please try again.');
-        }
-      }
-    },
-    [currentQuestion, questions, totalTime, timer, timeLeft, correct, wrong, skipped, difficulty, maxStreak, router]
-  );
-
-  // Skip handler
-  const handleSkip = useCallback(() => {
-    if (answered) return;
-    setAnswered(true);
-    setSkipped((prev) => prev + 1);
-    setStreak(0);
-    skipSound.play();
-    highlightCorrectAnswer();
-    setTotalTime((prev) => prev + (timer - timeLeft));
-    setTimeout(() => nextQuestion(answers), 1500);
-  }, [answered, answers, timeLeft, timer, skipSound, highlightCorrectAnswer, nextQuestion]);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token && !user) {
-      register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).catch((err) => {
-        console.error('Guest registration error:', err);
-        setError('Failed to create guest account');
-      });
-    }
-
-    const socketUrl = process.env.NEXT_PUBLIC_API_URL;
-    console.log('Connecting to Socket.IO server:', socketUrl, 'with token:', token);
-    const newSocket = io(socketUrl, {
-      auth: { token },
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
-
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
-    });
-
-    newSocket.on('connect_error', (err) => {
-      console.error('Socket connection error:', err.message, err.stack);
-      setIsLoading(false);
-      setError('Failed to connect to the server. Please try again.');
-    });
-
-    newSocket.on('quizQuestions', ({ questions }) => {
-      console.log('Received quiz questions:', questions);
-      setQuestions(questions);
-      setTimer(60);
-      setAnswered(false);
-      setIsLoading(false);
-      setError(null);
-    });
-
-    newSocket.on('error', ({ message }) => {
-      console.error('Socket error:', message);
-      setIsLoading(false);
-      setError(message);
-    });
-
-    newSocket.on('badgeEarned', ({ badge }) => {
-      confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
-      alert(`Congratulations! You've earned the ${badge} badge! 🎉`);
-    });
-
-    setSocket(newSocket);
-
-    return () => {
-      console.log('Disconnecting socket:', newSocket.id);
-      newSocket.disconnect();
-    };
-  }, [user, register]);
-
-  useEffect(() => {
-    let timeout;
-    if (isLoading) {
-      timeout = setTimeout(() => {
-        if (!questions) {
-          setIsLoading(false);
-          setError('Failed to load quiz questions. Please try again.');
-        }
-      }, 10000);
-    }
-    return () => clearTimeout(timeout);
-  }, [isLoading, questions]);
-
-  useEffect(() => {
-    let timerInterval;
-    if (questions && !answered) {
-      setTimeLeft(timer);
-      timerInterval = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 0) {
-            clearInterval(timerInterval);
-            handleSkip();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timerInterval);
-  }, [questions, currentQuestion, answered, handleSkip, timer]);
-
-  const startQuiz = () => {
-    if (!socket || !user) {
-      setError('Please log in or play as guest to start the quiz');
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    console.log('Emitting startQuiz with:', { difficulty, optionCount: 4, userId: user.id });
-    socket.emit('startQuiz', { difficulty, optionCount: 4, userId: user.id });
-  };
-
-  const handleAnswer = async (selectedAnswer) => {
-    if (answered) return;
-    setAnswered(true);
-    const isCorrect = selectedAnswer === questions[currentQuestion].correctAnswer;
-    const newAnswers = [
-      ...answers,
-      { ...questions[currentQuestion], userAnswer: selectedAnswer, isCorrect },
-    ];
-    setAnswers(newAnswers);
-
-    if (isCorrect) {
-      setCorrect((prev) => prev + 1);
-      setStreak((prev) => prev + 1);
-      setMaxStreak((prev) => Math.max(prev, streak + 1));
-      correctSound.play();
-      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-      createSuccessEffect();
-    } else {
-      setWrong((prev) => prev + 1);
-      setStreak(0);
-      wrongSound.play();
-      highlightCorrectAnswer();
-    }
-
-    setTotalTime((prev) => prev + (timer - timeLeft));
-    setTimeout(() => nextQuestion(newAnswers), 1500);
-  };
-
-  const createSuccessEffect = () => {
     const effect = document.createElement('div');
     effect.textContent = '+1';
     effect.className = 'fixed text-emerald-400 font-bold text-4xl pointer-events-none z-50 animate-float';
@@ -248,190 +88,386 @@ export default function Quiz() {
     effect.style.transform = 'translate(-50%, -50%)';
     document.body.appendChild(effect);
     setTimeout(() => effect.remove(), 1200);
-  };
+  }, []);
 
-  const renderQuestion = (question) => (
-    <MathJaxContext>
-      <MathJax className="text-xl sm:text-2xl font-semibold text-slate-200">{`\\[${question.questionText}\\]`}</MathJax>
-    </MathJaxContext>
+  const highlightCorrectAnswer = useCallback(() => {
+    const allOptions = document.querySelectorAll('.option-btn');
+    allOptions.forEach((opt) => {
+      if (opt.textContent === questions?.[currentQuestion]?.correctAnswer) {
+        opt.classList.add('bg-emerald-500', 'animate-pulse', 'text-white');
+      } else if (opt.textContent === answers[answers.length - 1]?.userAnswer) {
+        opt.classList.add('bg-red-500', 'text-white', 'animate-shake');
+      }
+      opt.disabled = true;
+    });
+  }, [questions, currentQuestion, answers]);
+
+  const startQuiz = useCallback(async () => {
+    if (!difficulty) {
+      setError('Please select a difficulty level');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('You are not authenticated. Please log in again.');
+        router.push('/login');
+        return;
+      }
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/questions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ difficulty, optionCount: 4 }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.questions || !Array.isArray(data.questions)) {
+        throw new Error(data.message || 'Invalid response from server');
+      }
+      // Validate question IDs
+      if (data.questions.some(q => !q._id)) {
+        throw new Error('Invalid question data: missing question IDs');
+      }
+      setQuestions(data.questions);
+      setCurrentQuestion(0);
+      setAnswers([]);
+      setCorrect(0);
+      setWrong(0);
+      setSkipped(0);
+      setStreak(0);
+      setMaxStreak(0);
+      setTotalTime(0);
+      setTimeLeft(timer);
+      setAnswered(false);
+      setIsLoading(false);
+      setError(null);
+      setSocketError(null);
+    } catch (err) {
+      console.log('Fetch questions error:', err.message, err.stack);
+      setError(`Failed to fetch questions: ${err.message}`);
+      setIsLoading(false);
+    }
+  }, [difficulty, timer, router]);
+
+  const handleAnswer = useCallback(
+    (selectedAnswer) => {
+      if (answered || !questions || !questions[currentQuestion]) return;
+      setAnswered(true);
+      const question = questions[currentQuestion];
+      if (!question._id) {
+        console.log('Missing questionId:', question);
+        setError('Invalid question data. Please try again.');
+        return;
+      }
+      const isCorrect = selectedAnswer === question.correctAnswer;
+      setTotalTime((prev) => prev + (timer - timeLeft));
+      const newAnswers = [
+        ...answers,
+        {
+          questionId: String(question._id),
+          questionText: question.questionText,
+          correctAnswer: question.correctAnswer,
+          userAnswer: selectedAnswer,
+          isCorrect,
+        },
+      ];
+      setAnswers(newAnswers);
+      if (isCorrect) {
+        setCorrect((prev) => prev + 1);
+        setStreak((prev) => prev + 1);
+        setMaxStreak((prev) => Math.max(prev, streak + 1));
+        correctSound.play();
+        createSuccessEffect();
+      } else {
+        setWrong((prev) => prev + 1);
+        setStreak(0);
+        wrongSound.play();
+      }
+      highlightCorrectAnswer();
+      setTimeout(() => nextQuestion(newAnswers), 1500);
+    },
+    [answered, questions, currentQuestion, timeLeft, timer, answers, streak, correctSound, wrongSound, createSuccessEffect, highlightCorrectAnswer]
   );
 
-  if (!difficulty) {
-    return (
-      <div className="min-h-screen top-20 flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-        {/* Floating mathematical symbols background */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-10 text-6xl text-amber-400 font-bold">π</div>
-          <div className="absolute top-40 right-20 text-5xl text-blue-400 font-bold">∑</div>
-          <div className="absolute bottom-40 left-20 text-4xl text-green-400 font-bold">∞</div>
-          <div className="absolute bottom-20 right-32 text-5xl text-red-400 font-bold">∆</div>
-        </div>
+  const handleSkip = useCallback(() => {
+    if (answered || !questions || !questions[currentQuestion]) return;
+    setAnswered(true);
+    setSkipped((prev) => {
+      const newSkipped = prev + 1;
+      console.log('Skipping question:', {
+        questionIndex: currentQuestion,
+        questionId: questions[currentQuestion]._id,
+        newSkippedCount: newSkipped,
+      });
+      return newSkipped;
+    });
+    setStreak(0);
+    skipSound.play();
+    highlightCorrectAnswer();
+    setTotalTime((prev) => prev + (timer - timeLeft));
+    const newAnswers = [
+      ...answers,
+      {
+        questionId: String(questions[currentQuestion]._id),
+        questionText: questions[currentQuestion].questionText,
+        correctAnswer: questions[currentQuestion].correctAnswer,
+        userAnswer: null,
+        isCorrect: false,
+      },
+    ];
+    setAnswers(newAnswers);
+    setTimeout(() => nextQuestion(newAnswers), 1500);
+  }, [answered, questions, currentQuestion, timeLeft, timer, answers, skipSound, highlightCorrectAnswer]);
 
-        {/* Gradient orbs for depth */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-blue-500/30 to-purple-600/30 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-br from-amber-500/30 to-orange-600/30 rounded-full blur-3xl"></div>
+  const submitQuiz = async (payload, retries = 2) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.log('No token found, submitting as guest');
+      }
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        console.log('Quiz submission failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          data,
+        });
+        throw new Error(data.message || `Failed to submit quiz (Status: ${response.status})`);
+      }
+      return data;
+    } catch (err) {
+      if (retries > 0) {
+        console.log(`Retrying quiz submission (${retries} retries left)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return submitQuiz(payload, retries - 1);
+      }
+      throw err;
+    }
+  };
 
-        <div className="bg-slate-800/50 backdrop-blur-xl rounded-3xl shadow-2xl border border-slate-700/50 max-w-md w-full p-6 sm:p-8 relative z-10">
-          <h1 className="text-3xl sm:text-4xl font-black text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
-            Choose Your Challenge
-          </h1>
-          {error && (
-            <p className="text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-6 text-center text-sm font-medium">
-              {error}
-            </p>
-          )}
-          <div className="grid gap-4">
-            {['easy', 'normal', 'hard', 'genius'].map((level) => (
-              <button
-                key={level}
-                onClick={() => setDifficulty(level)}
-                className={`px-6 py-3 rounded-lg font-semibold text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-blue-500/25 ${
-                  level === 'easy'
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700'
-                    : level === 'normal'
-                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700'
-                    : level === 'hard'
-                    ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
-                    : 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700'
-                }`}
-              >
-                {level.charAt(0).toUpperCase() + level.slice(1)}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => {
-              if (!user) {
-                register(`guest_${Date.now()}`, `guest_${Date.now()}@guest.com`, 'guest', true).then(() => setDifficulty('easy'));
-              } else {
-                setDifficulty('easy');
-              }
-            }}
-            className="mt-6 w-full px-6 py-3 bg-slate-700/50 border border-slate-600/50 text-slate-200 rounded-lg font-semibold hover:bg-slate-600/50 hover:border-slate-500/50 transition-all duration-300 transform hover:scale-105"
-          >
-            Play as Guest
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const nextQuestion = useCallback(
+    async (newAnswers) => {
+      if (currentQuestion + 1 < questions.length) {
+        setCurrentQuestion((prev) => prev + 1);
+        setAnswered(false);
+        setTimeLeft(timer);
+        const allOptions = document.querySelectorAll('.option-btn');
+        allOptions.forEach((opt) => {
+          opt.classList.remove('bg-emerald-500', 'bg-red-500', 'animate-pulse', 'animate-shake', 'text-white');
+          opt.disabled = false;
+        });
+      } else {
+        const timeTaken = Math.max(0, totalTime + (timer - timeLeft));
+        const score = { correct, wrong, skipped, total: questions.length }; // Ensure total matches questions.length
+        const payload = {
+          difficulty,
+          score,
+          timeTaken,
+          maxStreak,
+          questions: newAnswers.map(q => ({
+            questionId: q.questionId,
+            questionText: q.questionText,
+            correctAnswer: q.correctAnswer,
+            userAnswer: q.userAnswer,
+            isCorrect: q.isCorrect,
+          })),
+        };
 
-  if (!questions) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-        {/* Floating mathematical symbols background */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-10 text-6xl text-amber-400 font-bold">π</div>
-          <div className="absolute top-40 right-20 text-5xl text-blue-400 font-bold">∑</div>
-          <div className="absolute bottom-40 left-20 text-4xl text-green-400 font-bold">∞</div>
-          <div className="absolute bottom-20 right-32 text-5xl text-red-400 font-bold">∆</div>
-        </div>
+        // Additional validation to ensure consistency
+        if (
+          !payload.difficulty ||
+          !payload.score ||
+          payload.score.correct === undefined ||
+          payload.score.wrong === undefined ||
+          payload.score.skipped === undefined ||
+          payload.score.total !== payload.questions.length || // Ensure total matches questions.length
+          payload.timeTaken === undefined ||
+          payload.maxStreak === undefined ||
+          !payload.questions ||
+          !Array.isArray(payload.questions) ||
+          payload.questions.some(q => !q.questionId)
+        ) {
+          console.log('Invalid payload detected:', {
+            difficulty: payload.difficulty,
+            score: payload.score,
+            timeTaken: payload.timeTaken,
+            maxStreak: payload.maxStreak,
+            questions: payload.questions,
+            questionsLength: payload.questions?.length,
+            firstQuestion: payload.questions?.[0],
+          });
+          setError('Invalid quiz data. Please try again.');
+          return;
+        }
 
-        {/* Gradient orbs for depth */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-blue-500/30 to-purple-600/30 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-br from-amber-500/30 to-orange-600/30 rounded-full blur-3xl"></div>
+        console.log('Submitting quiz with payload:', JSON.stringify(payload, null, 2));
 
-        <div className="bg-slate-800/50 backdrop-blur-xl rounded-3xl shadow-2xl border border-slate-700/50 p-6 sm:p-8 text-center relative z-10">
-          {error && (
-            <p className="text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-6 text-sm font-medium">
-              {error}
-            </p>
-          )}
-          {isLoading ? (
-            <div className="flex items-center justify-center gap-2 text-slate-200 text-base sm:text-lg">
-              <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
-              </svg>
-              Loading quiz questions...
-            </div>
-          ) : (
-            <button
-              onClick={startQuiz}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-700 text-white rounded-lg font-semibold text-lg hover:from-blue-700 hover:to-purple-800 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-blue-500/25"
-            >
-              Start Quiz
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
+        try {
+          const data = await submitQuiz(payload);
+          setGameResult(data.gameResult);
+          setShowModal(true);
+        } catch (err) {
+          console.log('Quiz submission error:', err.message, err.stack, { payload });
+          setError(`Failed to submit quiz: ${err.message}`);
+        }
+      }
+    },
+    [currentQuestion, questions, totalTime, timer, timeLeft, correct, wrong, skipped, difficulty, maxStreak]
+  );
+
+  const handlePlayAgain = useCallback(() => {
+    setShowModal(false);
+    startQuiz();
+  }, [startQuiz]);
+
+  useEffect(() => {
+    if (!questions || answered) return;
+    const timerInterval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerInterval);
+          handleSkip();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerInterval);
+  }, [questions, answered, handleSkip]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const newSocket = io(process.env.NEXT_PUBLIC_API_URL, {
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      auth: { token },
+    });
+    setSocket(newSocket);
+    return () => newSocket.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('scoreUpdate', (data) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('Score update:', data);
+        }
+      });
+      socket.on('leaderboardUpdate', (data) => {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('Leaderboard update:', data);
+        }
+      });
+      socket.on('error', (data) => {
+        console.log('Socket error:', data.message);
+        setSocketError(`Socket error: ${data.message}`);
+      });
+    }
+  }, [socket]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Floating mathematical symbols background */}
-      <div className="absolute inset-0 opacity-10">
-        <div className="absolute top-20 left-10 text-6xl text-amber-400 font-bold">π</div>
-        <div className="absolute top-40 right-20 text-5xl text-blue-400 font-bold">∑</div>
-        <div className="absolute bottom-40 left-20 text-4xl text-green-400 font-bold">∞</div>
-        <div className="absolute bottom-20 right-32 text-5xl text-red-400 font-bold">∆</div>
-      </div>
-
-      {/* Gradient orbs for depth */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-blue-500/30 to-purple-600/30 rounded-full blur-3xl"></div>
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-br from-amber-500/30 to-orange-600/30 rounded-full blur-3xl"></div>
-
-      <div className="max-w-4xl w-full relative z-10">
-        <div className="bg-slate-800/50 backdrop-blur-xl p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-700/50">
-          <div className="flex flex-col sm:flex-row justify-between items-center mb-6">
-            <p className="text-slate-200 text-base sm:text-lg font-semibold">
-              Question {currentQuestion + 1}/{questions.length}
-            </p>
-            <div className="flex items-center gap-4">
-              <p className="text-slate-200 text-base sm:text-lg font-semibold">
-                Time Left: <span className={timeLeft <= 10 ? 'text-red-400 animate-pulse' : ''}>{timeLeft}s</span>
-              </p>
-              <p className="text-amber-400 text-base sm:text-lg font-semibold">Streak: {streak}</p>
-            </div>
-          </div>
-          <div className="w-full bg-slate-900/50 rounded-full h-3 mb-6">
-            <div
-              className="bg-gradient-to-r from-amber-400 to-orange-500 h-3 rounded-full transition-all duration-300"
-              style={{ width: `${((currentQuestion + 1) / questions.length) * 100}%` }}
-            ></div>
-          </div>
-          {error && (
-            <p className="text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-6 text-center text-sm font-medium">
-              {error}
-            </p>
-          )}
-          <div className="mb-8 bg-slate-900/30 p-4 rounded-lg border border-slate-700/50">
-            {renderQuestion(questions[currentQuestion])}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {questions[currentQuestion].options.map((option, index) => (
-              <button
-                key={index}
-                onClick={() => handleAnswer(option)}
-                className="option-btn p-4 sm:p-6 bg-slate-900/50 border border-slate-600/50 hover:bg-slate-800/50 text-slate-200 rounded-lg text-base sm:text-lg font-semibold transition-all duration-300 transform hover:scale-105 disabled:cursor-not-allowed"
-                disabled={answered}
-              >
-                <MathJax>{`\\[${option}\\]`}</MathJax>
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-4 mt-6">
-            <button
-              onClick={handleSkip}
-              className="flex-1 p-4 bg-gradient-to-r from-amber-500 to-orange-600 text-slate-900 rounded-lg font-semibold text-lg hover:from-amber-600 hover:to-orange-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-amber-500/25 disabled:bg-slate-600/50 disabled:cursor-not-allowed disabled:text-slate-400"
-              disabled={answered}
-            >
-              Skip
-            </button>
-            <Link
-              href="/profile"
-              className="flex-1 p-4 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg font-semibold text-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-red-500/25 text-center"
-            >
-              End Quiz
-            </Link>
+    <MathJaxContext config={mathJaxConfig}>
+      <style jsx global>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-12px); }
+        }
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          10%, 30%, 50%, 70%, 90% { transform: translateX(-8px); }
+          20%, 40%, 60%, 80% { transform: translateX(8px); }
+        }
+      `}</style>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-20 left-10 text-6xl text-amber-400 font-bold">π</div>
+          <div className="absolute top-40 right-20 text-5xl text-blue-400 font-bold">∑</div>
+          <div className="absolute bottom-40 left-20 text-4xl text-green-400 font-bold">∞</div>
+          <div className="absolute bottom-20 right-32 text-5xl text-red-400 font-bold">∆</div>
+        </div>
+        <div className="absolute top-0 left-0 w-96 h-96 bg-gradient-to-br from-blue-500/30 to-purple-600/30 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-gradient-to-br from-amber-500/30 to-orange-600/30 rounded-full blur-3xl"></div>
+        <div className="max-w-4xl w-full relative z-10">
+          <div className="bg-slate-800/50 backdrop-blur-xl p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-700/50">
+            {difficulty ? (
+              questions ? (
+                <>
+                  <QuizQuestion
+                    questions={questions}
+                    currentQuestion={currentQuestion}
+                    timeLeft={timeLeft}
+                    streak={streak}
+                    answered={answered}
+                    handleAnswer={handleAnswer}
+                  />
+                  <QuizControls handleSkip={handleSkip} answered={answered} />
+                  {error && (
+                    <p className="text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-6 text-center text-sm font-medium">
+                      {error}
+                    </p>
+                  )}
+                  {socketError && (
+                    <p className="text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-6 text-center text-sm font-medium">
+                      {socketError}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="bg-slate-800/50 backdrop-blur-xl rounded-3xl shadow-2xl border border-slate-700/50 p-6 sm:p-8 text-center relative z-10">
+                  {error && (
+                    <p className="text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-6 text-sm font-medium">
+                      {error}
+                    </p>
+                  )}
+                  {isLoading ? (
+                    <LoadingSpinner />
+                  ) : (
+                    <button
+                      onClick={startQuiz}
+                      className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-700 text-white rounded-lg font-semibold text-lg hover:from-blue-700 hover:to-purple-800 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-blue-500/25"
+                    >
+                      Start Quiz
+                    </button>
+                  )}
+                </div>
+              )
+            ) : (
+              <DifficultySelector
+                setDifficulty={setDifficulty}
+                error={error}
+                user={user}
+                setError={setError}
+              />
+            )}
           </div>
         </div>
+        <QuizResultModal
+          isOpen={showModal}
+          onClose={handlePlayAgain}
+          results={{
+            correct,
+            wrong,
+            skipped,
+            total: questions?.length || 0,
+            pointsEarned: gameResult?.pointsEarned || 0,
+          }}
+          difficulty={difficulty}
+          timeTaken={totalTime + (timer - timeLeft)}
+          maxStreak={maxStreak}
+        />
       </div>
-    </div>
+    </MathJaxContext>
   );
 }
