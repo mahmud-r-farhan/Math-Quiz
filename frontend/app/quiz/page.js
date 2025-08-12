@@ -31,8 +31,8 @@ export default function Quiz() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [socketError, setSocketError] = useState(null);
-  const [showModal, setShowModal] = useState(false); // Added
-  const [gameResult, setGameResult] = useState(null); // Added
+  const [showModal, setShowModal] = useState(false);
+  const [gameResult, setGameResult] = useState(null);
   const { user } = useAuth();
   const router = useRouter();
 
@@ -53,11 +53,7 @@ export default function Quiz() {
     },
     startup: {
       typeset: true,
-      pageReady: () => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('MathJax initialized');
-        }
-      },
+      pageReady: () => {}
     },
   };
 
@@ -127,7 +123,6 @@ export default function Quiz() {
       if (!response.ok || !data.questions || !Array.isArray(data.questions)) {
         throw new Error(data.message || 'Invalid response from server');
       }
-      // Validate question IDs
       if (data.questions.some(q => !q._id)) {
         throw new Error('Invalid question data: missing question IDs');
       }
@@ -146,7 +141,6 @@ export default function Quiz() {
       setError(null);
       setSocketError(null);
     } catch (err) {
-      console.log('Fetch questions error:', err.message, err.stack);
       setError(`Failed to fetch questions: ${err.message}`);
       setIsLoading(false);
     }
@@ -158,7 +152,6 @@ export default function Quiz() {
       setAnswered(true);
       const question = questions[currentQuestion];
       if (!question._id) {
-        console.log('Missing questionId:', question);
         setError('Invalid question data. Please try again.');
         return;
       }
@@ -195,15 +188,7 @@ export default function Quiz() {
   const handleSkip = useCallback(() => {
     if (answered || !questions || !questions[currentQuestion]) return;
     setAnswered(true);
-    setSkipped((prev) => {
-      const newSkipped = prev + 1;
-      console.log('Skipping question:', {
-        questionIndex: currentQuestion,
-        questionId: questions[currentQuestion]._id,
-        newSkippedCount: newSkipped,
-      });
-      return newSkipped;
-    });
+    setSkipped((prev) => prev + 1);
     setStreak(0);
     skipSound.play();
     highlightCorrectAnswer();
@@ -226,7 +211,6 @@ export default function Quiz() {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.log('No token found, submitting as guest');
       }
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/quiz/submit`, {
         method: 'POST',
@@ -238,17 +222,11 @@ export default function Quiz() {
       });
       const data = await response.json();
       if (!response.ok) {
-        console.log('Quiz submission failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          data,
-        });
         throw new Error(data.message || `Failed to submit quiz (Status: ${response.status})`);
       }
       return data;
     } catch (err) {
       if (retries > 0) {
-        console.log(`Retrying quiz submission (${retries} retries left)`);
         await new Promise(resolve => setTimeout(resolve, 1000));
         return submitQuiz(payload, retries - 1);
       }
@@ -269,7 +247,7 @@ export default function Quiz() {
         });
       } else {
         const timeTaken = Math.max(0, totalTime + (timer - timeLeft));
-        const score = { correct, wrong, skipped, total: questions.length }; // Ensure total matches questions.length
+        const score = { correct, wrong, skipped, total: questions.length };
         const payload = {
           difficulty,
           score,
@@ -284,41 +262,28 @@ export default function Quiz() {
           })),
         };
 
-        // Additional validation to ensure consistency
         if (
           !payload.difficulty ||
           !payload.score ||
           payload.score.correct === undefined ||
           payload.score.wrong === undefined ||
           payload.score.skipped === undefined ||
-          payload.score.total !== payload.questions.length || // Ensure total matches questions.length
+          payload.score.total !== payload.questions.length ||
           payload.timeTaken === undefined ||
           payload.maxStreak === undefined ||
           !payload.questions ||
           !Array.isArray(payload.questions) ||
           payload.questions.some(q => !q.questionId)
         ) {
-          console.log('Invalid payload detected:', {
-            difficulty: payload.difficulty,
-            score: payload.score,
-            timeTaken: payload.timeTaken,
-            maxStreak: payload.maxStreak,
-            questions: payload.questions,
-            questionsLength: payload.questions?.length,
-            firstQuestion: payload.questions?.[0],
-          });
           setError('Invalid quiz data. Please try again.');
           return;
         }
-
-        console.log('Submitting quiz with payload:', JSON.stringify(payload, null, 2));
 
         try {
           const data = await submitQuiz(payload);
           setGameResult(data.gameResult);
           setShowModal(true);
         } catch (err) {
-          console.log('Quiz submission error:', err.message, err.stack, { payload });
           setError(`Failed to submit quiz: ${err.message}`);
         }
       }
@@ -360,18 +325,9 @@ export default function Quiz() {
 
   useEffect(() => {
     if (socket) {
-      socket.on('scoreUpdate', (data) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('Score update:', data);
-        }
-      });
-      socket.on('leaderboardUpdate', (data) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('Leaderboard update:', data);
-        }
-      });
+      socket.on('scoreUpdate', (data) => {});
+      socket.on('leaderboardUpdate', (data) => {});
       socket.on('error', (data) => {
-        console.log('Socket error:', data.message);
         setSocketError(`Socket error: ${data.message}`);
       });
     }

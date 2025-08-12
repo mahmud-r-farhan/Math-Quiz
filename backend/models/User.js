@@ -4,7 +4,10 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  profilePicture: { type: String, default: 'https://res.cloudinary.com/dqovjmmlx/image/upload/v1754038761/defult-profile_whp2vd.jpg' },
+  profilePicture: { 
+    type: String, 
+    default: 'https://res.cloudinary.com/dqovjmmlx/image/upload/v1754038761/defult-profile_whp2vd.jpg' 
+  },
   profession: String,
   socialLinks: {
     twitter: String,
@@ -16,8 +19,13 @@ const userSchema = new mongoose.Schema({
   gameHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'GameResult' }],
   createdAt: { type: Date, default: Date.now },
   isGuest: { type: Boolean, default: false },
+  guestId: { type: String, unique: true, sparse: true }, // Added for guest accounts
 });
 
+// Index for efficient cleanup of guest accounts
+userSchema.index({ isGuest: 1, createdAt: 1 });
+
+// Update badges based on points before saving
 userSchema.pre('save', function (next) {
   const points = this.points || 0;
   const badges = [];

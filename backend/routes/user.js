@@ -15,7 +15,7 @@ router.get('/profile/:id', async (req, res) => {
       .limit(10);
     res.json({ user: { ...user.toObject(), badges: user.badges }, history });
   } catch (error) {
-    console.error('Profile fetch error:', error);
+   // console.error('Profile fetch error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -39,7 +39,7 @@ router.put('/profile', auth, async (req, res) => {
     await user.save();
     res.json({ user: { ...user.toObject(), badges: user.badges } });
   } catch (error) {
-    console.error('Profile update error:', error);
+   // console.error('Profile update error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -52,7 +52,7 @@ router.get('/leaderboard', async (req, res) => {
       .select('username points profilePicture badges');
     res.json({ users });
   } catch (error) {
-    console.error('Leaderboard fetch error:', error);
+   // console.error('Leaderboard fetch error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
