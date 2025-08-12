@@ -15,7 +15,7 @@ async function safeFetchJSON(url, options = {}) {
     const data = JSON.parse(text);
     return { ok: res.ok, data };
   } catch {
-    console.error(`Non-JSON response from ${url}:`, text.substring(0, 300));
+    console.log(`Non-JSON response from ${url}:`, text.substring(0, 300));
     return { ok: false, data: { message: 'Invalid JSON response from server' } };
   }
 }
@@ -27,60 +27,78 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const idToken = await firebaseUser.getIdToken();
-        const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ idToken }),
-        });
-
-        if (ok) {
-          localStorage.setItem('token', data.token);
-          setUser(data.user);
-        } else {
-          console.error('Google login failed:', data.message);
-          setUser(null);
-          localStorage.removeItem('token');
-        }
-      } else {
-        const token = localStorage.getItem('token');
-        if (token) {
-          const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
-            headers: { Authorization: `Bearer ${token}` },
+      setLoading(true);
+      try {
+        if (firebaseUser) {
+          // Firebase user exists, validate with backend
+          const idToken = await firebaseUser.getIdToken();
+          const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }),
           });
 
           if (ok) {
+            localStorage.setItem('token', data.token);
             setUser(data.user);
           } else {
-            console.error('Profile fetch failed:', data.message);
+            console.log('Google login failed:', data.message);
             localStorage.removeItem('token');
             setUser(null);
           }
         } else {
-          setUser(null);
+          // No Firebase user, check for token in localStorage
+          const token = localStorage.getItem('token');
+          if (token) {
+            // Validate token with backend
+            const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (ok) {
+              setUser(data.user);
+            } else {
+              console.log('Profile fetch failed:', data.message);
+              localStorage.removeItem('token');
+              setUser(null);
+            }
+          } else {
+            setUser(null);
+          }
         }
+      } catch (error) {
+        console.log('Auth state check error:', error);
+        localStorage.removeItem('token');
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
-  const register = async (username, email, password, isGuest = false) => {
-    const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, email, password, isGuest }),
-    });
 
-    if (ok) {
-      localStorage.setItem('token', data.token);
-      setUser(data.user);
-    } else {
-      throw new Error(data.message || 'Registration failed');
-    }
-  };
+    const register = async (username, email, password, isGuest = false) => {
+      try {
+        const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email, password, isGuest }),
+        });
+
+        if (ok) {
+          localStorage.setItem('token', data.token);
+          setUser(data.user);
+          router.push('/profile');
+        } else {
+          throw new Error(data.message || 'Registration failed');
+        }
+      } catch (error) {
+        console.log('Registration error:', error);
+        throw error;
+      }
+    };
 
   const login = async (email, password) => {
     const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
@@ -115,7 +133,7 @@ export function AuthProvider({ children }) {
         throw new Error(data.message || 'Google login failed');
       }
     } catch (error) {
-      console.error('Google login error:', error);
+      console.log('Google login error:', error);
       throw error;
     }
   };
@@ -127,7 +145,7 @@ export function AuthProvider({ children }) {
       setUser(null);
       router.push('/login');
     } catch (error) {
-      console.error('Logout error:', error);
+      console.log('Logout error:', error);
     }
   };
 

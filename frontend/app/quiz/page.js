@@ -258,7 +258,7 @@ export default function Quiz() {
 
   if (!difficulty) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      <div className="min-h-screen top-20 flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-6 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         {/* Floating mathematical symbols background */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-10 text-6xl text-amber-400 font-bold">π</div>

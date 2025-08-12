@@ -10,7 +10,7 @@ export default function Home() {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
+    <div className="min-h-screen top-20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
       {/* Floating mathematical symbols background */}
       <div className="absolute inset-0 opacity-10">
         <div className="absolute top-20 left-10 text-6xl text-amber-400 font-bold">π</div>

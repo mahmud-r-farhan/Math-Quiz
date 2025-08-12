@@ -45,7 +45,6 @@ export default function Register() {
       return;
     }
 
-    // Check password strength
     const hasUpperCase = /[A-Z]/.test(formData.password);
     const hasLowerCase = /[a-z]/.test(formData.password);
     const hasNumbers = /\d/.test(formData.password);
@@ -58,7 +57,7 @@ export default function Register() {
     setLoading(true);
     try {
       await register(formData.username, formData.email, formData.password, user?.isGuest);
-      router.push('/profile');
+      // No need for manual redirect here since register handles it
     } catch (err) {
       setError(err.message || 'Registration failed');
     } finally {
@@ -93,7 +92,7 @@ export default function Register() {
   const passwordStrength = getPasswordStrength(formData.password);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden py-4 px-4 sm:py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen top-20 flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden py-4 px-4 sm:py-6 sm:px-6 lg:px-8">
       {/* Floating mathematical symbols background */}
       <div className="absolute inset-0 opacity-10 pointer-events-none">
         <div className="absolute top-10 sm:top-20 left-4 sm:left-10 text-3xl sm:text-6xl text-amber-400 font-bold">π</div>

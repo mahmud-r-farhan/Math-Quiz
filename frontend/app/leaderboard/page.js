@@ -124,7 +124,7 @@ export default function Leaderboard() {
   }
 
    return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-4 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+    <div className="min-h-screen top-20 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-4 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Floating mathematical symbols background */}
       <div className="absolute inset-0 opacity-10 pointer-events-none">
         <div className="absolute top-10 sm:top-20 left-5 sm:left-10 text-4xl sm:text-6xl text-amber-400 font-bold">π</div>
