@@ -82,6 +82,7 @@ router.post(
         user: { id: user._id, username, email, badges: user.badges, isGuest: false },
       });
     } catch (error) {
+      console.error('Registration error:', error.message, error.stack);
       res.status(500).json({ message: 'Server error during registration' });
     }
   }
@@ -91,7 +92,12 @@ router.post(
   '/login',
   [
     body('email').isEmail().withMessage('Invalid email'),
-    body('password').notEmpty().withMessage('Password is required'),
+    body('password').custom((value, { req }) => {
+      if (!value && !req.body.isGuest) {
+        throw new Error('Password is required for non-guest accounts');
+      }
+      return true;
+    }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -100,12 +106,19 @@ router.post(
     }
 
     try {
-      const { email, password } = req.body;
+      const { email, password, isGuest } = req.body;
       const user = await User.findOne({ email });
-      if (!user || (user.isGuest && password !== 'guest') || (!user.isGuest && !await bcrypt.compare(password, user.password))) {
+      if (!user) {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
-      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+      if (user.isGuest && isGuest) {
+        if (password && password !== 'guest') {
+          return res.status(401).json({ message: 'Invalid credentials for guest account' });
+        }
+      } else if (!user.isGuest && !await bcrypt.compare(password, user.password)) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: user.isGuest ? '1d' : '7d' });
       res.json({
         token,
         user: {
@@ -118,6 +131,7 @@ router.post(
         },
       });
     } catch (error) {
+      console.error('Login error:', error.message, error.stack);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -130,9 +144,17 @@ router.post('/google', async (req, res) => {
       return res.status(400).json({ message: 'No ID token provided' });
     }
 
-    const decodedToken = await admin.auth().verifyIdToken(idToken).catch((error) => {
-      throw new Error('Invalid or expired ID token');
-    });
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(idToken);
+    } catch (error) {
+      console.error('Firebase token verification failed:', {
+        message: error.message,
+        code: error.code,
+        time: new Date().toISOString(),
+      });
+      return res.status(400).json({ message: 'Invalid or expired ID token' });
+    }
 
     const { email, name, picture } = decodedToken;
 
@@ -149,7 +171,7 @@ router.post('/google', async (req, res) => {
       await user.save();
     }
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });;
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({
       token,
       user: {
@@ -162,7 +184,30 @@ router.post('/google', async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(400).json({ message: error.message || 'Google authentication failed' });
+    console.error('Google auth error:', {
+      message: error.message,
+      stack: error.stack,
+      time: new Date().toISOString(),
+    });
+    res.status(500).json({ message: 'Server error during Google authentication' });
+  }
+});
+
+router.get('/validate-token', async (req, res) => {
+  const token = req.headers.authorization?.split('Bearer ')[1];
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json({ valid: true, user: { id: user._id, username: user.username, email: user.email, isGuest: user.isGuest } });
+  } catch (error) {
+    console.error('Token validation error:', error.message, error.stack);
+    res.status(401).json({ message: 'Invalid or expired token' });
   }
 });
 
@@ -193,11 +238,11 @@ router.post('/convert-guest', async (req, res) => {
       user: { id: user._id, username, email, badges: user.badges, isGuest: false },
     });
   } catch (error) {
+    console.error('Guest conversion error:', error.message, error.stack);
     res.status(500).json({ message: 'Server error during guest conversion' });
   }
 });
 
-// Request password reset
 router.post(
   '/reset-password/request',
   [
@@ -216,32 +261,33 @@ router.post(
         return res.status(404).json({ message: 'User not found or is a guest account' });
       }
 
-      // Generate 8-digit OTP
       const otp = Math.floor(10000000 + Math.random() * 90000000).toString();
-      const otpExpires = new Date(Date.now() + 2 * 60 * 1000); // OTP valid for 2 minutes
-
-      // Store OTP and expiration in user document
+      const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
       user.resetPasswordOTP = await bcrypt.hash(otp, 10);
       user.resetPasswordExpires = otpExpires;
       await user.save();
 
-      // Send OTP email
-      await sendResetPasswordEmail(email, otp);
-      res.status(200).json({ message: 'OTP sent to email' });
+      try {
+        await sendResetPasswordEmail(email, otp);
+        res.status(200).json({ message: 'OTP sent to email' });
+      } catch (emailError) {
+        console.error('Email sending error:', emailError.message, emailError.stack);
+        return res.status(500).json({ message: 'Failed to send OTP email' });
+      }
     } catch (error) {
+      console.error('Reset password request error:', error.message, error.stack);
       res.status(500).json({ message: 'Server error during password reset request' });
     }
   }
 );
 
-// Verify OTP and reset password
 router.post(
   '/reset-password/verify',
   [
     body('email').isEmail().withMessage('Invalid email'),
     body('otp').isLength({ min: 8, max: 8 }).withMessage('OTP must be 8 digits'),
     body('newPassword').optional().custom((value, { req }) => {
-      if (!value) return true; // Allow empty newPassword for OTP verification only
+      if (!value) return true;
       if (value.length < 6) {
         throw new Error('New password must be at least 6 characters');
       }
@@ -279,7 +325,6 @@ router.post(
         return res.status(400).json({ message: 'Invalid OTP' });
       }
 
-      // If newPassword is provided, update the password
       if (newPassword) {
         user.password = await bcrypt.hash(newPassword, 10);
         user.resetPasswordOTP = undefined;
@@ -300,6 +345,7 @@ router.post(
       }
       res.status(200).json({ message: 'OTP verified successfully' });
     } catch (error) {
+      console.error('Reset password verify error:', error.message, error.stack);
       res.status(500).json({ message: 'Server error during password reset' });
     }
   }

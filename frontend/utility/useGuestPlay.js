@@ -35,11 +35,6 @@ const useGuestPlay = (setLoading) => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         return playAsGuest(retries - 1);
       }
-      alert(
-        error.message.includes('Guest email already exists')
-          ? 'Guest account creation failed. Please try again.'
-          : 'Failed to start as guest. Please try again later.'
-      );
     } finally {
       setLoading?.(false);
     }

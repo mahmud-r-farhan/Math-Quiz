@@ -8,22 +8,25 @@ const router = express.Router();
 
 router.post('/questions', auth, async (req, res) => {
   try {
-    const { difficulty, optionCount } = req.body;
+    const { difficulty, optionCount, quizLength } = req.body;
     if (!['easy', 'normal', 'hard', 'genius'].includes(difficulty)) {
       return res.status(400).json({ message: 'Invalid difficulty' });
     }
     if (![4, 6].includes(optionCount)) {
       return res.status(400).json({ message: 'Invalid option count' });
     }
+    if (![5, 10, 15].includes(quizLength)) {
+      return res.status(400).json({ message: 'Invalid quiz length' });
+    }
 
-    const questions = Array.from({ length: 10 }, () => generateMathQuestion(difficulty, optionCount));
-    console.log('Generated questions for user:', req.user.id, {
-      count: questions.length,
-      questionIds: questions.map(q => q._id),
-      firstQuestion: questions[0],
-    });
+    const questions = Array.from({ length: quizLength }, () => generateMathQuestion(difficulty, optionCount));
+    if (questions.some((q) => !q._id || !q.questionText || !q.correctAnswer || !q.options || q.options.length !== optionCount)) {
+      console.error('Invalid questions generated:', { questions });
+      return res.status(500).json({ message: 'Failed to generate valid quiz questions' });
+    }
     res.json({ questions });
   } catch (error) {
+    console.error('Quiz questions error:', { message: error.message });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -49,7 +52,7 @@ router.post('/submit', async (req, res) => {
     if (score.total !== questions.length) {
       missingFields.push(`score.total (${score.total}) does not match questions length (${questions.length})`);
     }
-    if (questions.some(q => !q.questionId)) {
+    if (questions.some((q) => !q.questionId)) {
       missingFields.push('questionId missing in some questions');
     }
 
@@ -63,6 +66,7 @@ router.post('/submit', async (req, res) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.id;
       } catch (err) {
+        console.error('Token verification failed:', { message: err.message });
       }
     }
 
@@ -76,10 +80,10 @@ router.post('/submit', async (req, res) => {
         total: score.total,
       },
       pointsEarned: 0,
-      accuracy: 0,
+      accuracy: score.correct / score.total,
       timeTaken,
       streak: maxStreak,
-      questions: questions.map(q => ({
+      questions: questions.map((q) => ({
         questionId: String(q.questionId),
         questionText: q.questionText,
         correctAnswer: q.correctAnswer,
@@ -107,12 +111,14 @@ router.post('/submit', async (req, res) => {
           const leaderboard = await User.find().sort({ points: -1 }).limit(10).select('username points profilePicture badges');
           req.io.to('all').emit('leaderboardUpdate', { users: leaderboard });
         } catch (socketError) {
+          console.error('Socket emit error:', { message: socketError.message });
         }
       }
     }
 
     res.status(201).json({ gameResult });
   } catch (error) {
+    console.error('Quiz submit error:', { message: error.message });
     res.status(500).json({ message: `Failed to submit quiz: ${error.message}` });
   }
 });
