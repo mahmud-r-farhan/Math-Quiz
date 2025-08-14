@@ -28,15 +28,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const validateToken = async (token) => {
-    const { ok, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/validate-token`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return ok ? data : null;
-  };
-
   useEffect(() => {
-    let mounted = true;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
       try {
@@ -48,52 +40,44 @@ export function AuthProvider({ children }) {
             body: JSON.stringify({ idToken }),
           });
 
-          if (ok && mounted) {
+          if (ok) {
             localStorage.setItem('token', data.token);
             setUser(data.user);
-            try {
-              await connectSocket(data.token);
-            } catch (socketError) {
-              console.log('Socket connection failed:', socketError.message);
-            }
+            connectSocket(data.token);
           } else {
             console.log('Google login failed:', data.message, { status });
             localStorage.removeItem('token');
-            if (mounted) setUser(null);
+            setUser(null);
           }
         } else {
           const token = localStorage.getItem('token');
           if (token) {
-            const validationResult = await validateToken(token);
-            if (validationResult && mounted) {
-              setUser(validationResult.user);
-              try {
-                await connectSocket(token);
-              } catch (socketError) {
-                console.log('Socket connection failed:', socketError.message);
-              }
+            const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/user/profile`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (ok) {
+              setUser(data.user);
+              connectSocket(token);
             } else {
-              console.log('Token validation failed:', validationResult?.message || 'Invalid token');
+              console.log('Profile fetch failed:', data.message, { status });
               localStorage.removeItem('token');
-              if (mounted) setUser(null);
+              setUser(null);
             }
-          } else if (mounted) {
+          } else {
             setUser(null);
           }
         }
       } catch (error) {
         console.log('Auth state check error:', error.message, error.stack);
         localStorage.removeItem('token');
-        if (mounted) setUser(null);
+        setUser(null);
       } finally {
-        if (mounted) setLoading(false);
+        setLoading(false);
       }
     });
 
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
   const register = async (username, email, password, isGuest = false) => {
@@ -101,17 +85,13 @@ export function AuthProvider({ children }) {
       const { ok, status, data } = await safeFetchJSON(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, password: isGuest ? 'guest' : password, isGuest }),
+        body: JSON.stringify({ username, email, password, isGuest }),
       });
 
       if (ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
-        try {
-          await connectSocket(data.token);
-        } catch (socketError) {
-          console.log('Socket connection failed:', socketError.message);
-        }
+        connectSocket(data.token);
         router.push('/profile');
       } else {
         throw new Error(data.message || 'Registration failed');
@@ -133,11 +113,7 @@ export function AuthProvider({ children }) {
       if (ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
-        try {
-          await connectSocket(data.token);
-        } catch (socketError) {
-          console.log('Socket connection failed:', socketError.message);
-        }
+        connectSocket(data.token);
         router.push('/profile');
       } else {
         throw new Error(data.message || 'Login failed');
@@ -162,16 +138,12 @@ export function AuthProvider({ children }) {
       if (ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
-        try {
-          await connectSocket(data.token);
-        } catch (socketError) {
-          console.log('Socket connection failed:', socketError.message);
-        }
+        connectSocket(data.token);
         router.push('/profile');
       } else {
         if (retryCount < maxRetries && status >= 500) {
           console.log(`Google login retry ${retryCount + 1}/${maxRetries}: Server error`, { status, message: data.message });
-          await new Promise((resolve) => setTimeout(resolve, 2000 * (retryCount + 1)));
+          await new Promise((resolve) => setTimeout(resolve, 1000 * (retryCount + 1)));
           return googleLogin(retryCount + 1);
         }
         throw new Error(data.message || 'Google login failed');
@@ -183,7 +155,7 @@ export function AuthProvider({ children }) {
       }
       if (retryCount < maxRetries && error.message.includes('network')) {
         console.log(`Google login retry ${retryCount + 1}/${maxRetries}: Network error`);
-        await new Promise((resolve) => setTimeout(resolve, 2000 * (retryCount + 1)));
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (retryCount + 1)));
         return googleLogin(retryCount + 1);
       }
       throw new Error('Google authentication failed. Please try again.');
@@ -220,12 +192,8 @@ export function AuthProvider({ children }) {
       if (ok) {
         localStorage.setItem('token', data.token);
         setUser(data.user);
-        try {
-          await connectSocket(data.token);
-        } catch (socketError) {
-          console.log('Socket connection failed:', socketError.message);
-        }
-        router.push('/profile');
+        connectSocket(data.token);
+        return data;
       } else {
         throw new Error(data.message || 'Failed to reset password');
       }
